@@ -701,7 +701,43 @@ function normalizeSiiScheduleRow(row, index = 0) {
     "clase",
     "subject"
   ]);
-  const place = pickFirst(row, ["aula", "salon", "salón", "ubicacion", "ubicación", "edificio", "grupo", "lugar", "place", "room"]) || "";
+  const teacher = pickFirst(row, [
+    "profesor",
+    "profesora",
+    "docente",
+    "maestro",
+    "maestra",
+    "catedratico",
+    "catedrático",
+    "instructor",
+    "teacher",
+    "nombre_profesor",
+    "nombreProfesor",
+    "profesor_nombre",
+    "nombre_docente",
+    "nombreDocente",
+    "docente_nombre",
+    "nom_docente",
+    "empleado"
+  ]);
+  const room = pickFirst(row, [
+    "aula",
+    "salon",
+    "salón",
+    "salon_nombre",
+    "salón_nombre",
+    "nombre_salon",
+    "nombre_salón",
+    "aula_nombre",
+    "nombre_aula",
+    "room",
+    "classroom",
+    "ubicacion",
+    "ubicación",
+    "edificio",
+    "lugar",
+    "place"
+  ]) || dayColumnSchedule.place || "";
   const start = normalizeTime(pickFirst(row, [
     "inicio",
     "hora_inicio",
@@ -742,7 +778,9 @@ function normalizeSiiScheduleRow(row, index = 0) {
     externalId: pickFirst(row, ["id", "clave", "materia_id", "classId", "class_id", "grupo_id"]) || `${slugify(name)}-${start}-${end}-${uniqueDays.join("")}-${index}`,
     source: SII_CLASS_SOURCE,
     name: String(name).trim(),
-    place: String(place).trim(),
+    place: formatClassPlace({ room, teacher }),
+    room: String(room).trim(),
+    teacher: String(teacher).trim(),
     color: pickClassColor(index),
     start,
     end,
@@ -889,7 +927,7 @@ function parseTimeRange(value) {
 }
 
 function getScheduleFromDayColumns(row) {
-  const schedule = { days: [], start: "", end: "" };
+  const schedule = { days: [], start: "", end: "", place: "" };
   const dayColumns = [
     { day: 0, keys: ["domingo", "dom", "sunday", "sun"] },
     { day: 1, keys: ["lunes", "lun", "monday", "mon", "l"] },
@@ -909,10 +947,37 @@ function getScheduleFromDayColumns(row) {
     const range = parseTimeRange(value);
     if (!schedule.start && range.start) schedule.start = range.start;
     if (!schedule.end && range.end) schedule.end = range.end;
+    if (!schedule.place) schedule.place = extractPlaceFromScheduleCell(value);
   });
 
   schedule.days = Array.from(new Set(schedule.days)).sort((a, b) => a - b);
   return schedule;
+}
+
+function extractPlaceFromScheduleCell(value) {
+  const text = cleanText(value);
+  if (!text) return "";
+
+  const withoutTimes = text
+    .replace(/\d{1,2}:?\d{2}\s*(?:-|a|A|–|—|\/)?\s*/g, " ")
+    .replace(/\bhrs?\.?\b/gi, " ")
+    .replace(/\bhoras?\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!withoutTimes || parseScheduleDays(withoutTimes).length) return "";
+  if (/^(si|yes|true|x)$/i.test(withoutTimes)) return "";
+
+  return withoutTimes;
+}
+
+function formatClassPlace({ room = "", teacher = "" } = {}) {
+  const parts = [
+    room ? String(room).trim() : "",
+    teacher ? `Prof. ${String(teacher).trim().replace(/^prof\.?\s*/i, "")}` : ""
+  ].filter(Boolean);
+
+  return Array.from(new Set(parts)).join(" · ");
 }
 
 function isActiveScheduleCell(value) {
@@ -1461,11 +1526,13 @@ function tick() {
 
   if (current) {
     elements.classStatusLabel.textContent = "En clase";
-    elements.nextClassText.textContent = `${current.name}${current.place ? ` · ${current.place}` : ""}`;
+    const location = getClassLocationText(current);
+    elements.nextClassText.textContent = `${current.name}${location ? ` · ${location}` : ""}`;
   } else {
     elements.classStatusLabel.textContent = "Siguiente clase";
+    const location = next ? getClassLocationText(next) : "";
     elements.nextClassText.textContent = next
-      ? `${next.name} a las ${next.start}${next.place ? ` · ${next.place}` : ""}`
+      ? `${next.name} a las ${next.start}${location ? ` · ${location}` : ""}`
       : "Sin clases próximas";
   }
 
@@ -1563,13 +1630,14 @@ function renderTimelineItem(item) {
   const now = new Date();
   const pendingCount = getTasksForClass(item.id).filter((task) => !isTaskComplete(task, toDateInput(now))).length;
   const isCurrent = isClassCurrent(item, now);
+  const location = getClassLocationText(item);
 
   return `
     <article class="timeline-item ${isCurrent ? "current" : ""}" style="--class-color:${item.color || DEFAULT_CLASS_COLOR}">
       <div class="time-pill">${item.start}</div>
       <div>
         <h3>${escapeHtml(item.name)}${isCurrent ? ` <span class="status-chip">En clase</span>` : ""}</h3>
-        <p class="muted">${item.end}${item.place ? ` · ${escapeHtml(item.place)}` : ""}${pendingCount ? ` · ${pendingCount} tarea${pendingCount === 1 ? "" : "s"}` : ""}</p>
+        <p class="muted">${item.end}${location ? ` · ${escapeHtml(location)}` : ""}${pendingCount ? ` · ${pendingCount} tarea${pendingCount === 1 ? "" : "s"}` : ""}</p>
       </div>
     </article>
   `;
@@ -1622,13 +1690,14 @@ function renderClasses() {
 function renderClassCard(item) {
   const days = item.days.slice().sort((a, b) => a - b).map((day) => `<span class="tag">${DAY_NAMES[day]}</span>`).join("");
   const pendingCount = getTasksForClass(item.id).filter((task) => !isTaskComplete(task, toDateInput(new Date()))).length;
+  const location = getClassLocationText(item);
 
   return `
     <article class="class-card" style="--class-color:${item.color || DEFAULT_CLASS_COLOR}">
       <div class="card-title-row">
         <div>
           <h3>${escapeHtml(item.name)}</h3>
-          <p class="muted">${item.start} - ${item.end}${item.place ? ` · ${escapeHtml(item.place)}` : ""}${pendingCount ? ` · ${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}` : ""}</p>
+          <p class="muted">${item.start} - ${item.end}${location ? ` · ${escapeHtml(location)}` : ""}${pendingCount ? ` · ${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}` : ""}</p>
         </div>
         <div class="card-actions">
           <button class="tiny-button" type="button" data-delete-class="${item.id}" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">
@@ -1643,6 +1712,37 @@ function renderClassCard(item) {
       </button>
     </article>
   `;
+}
+
+function getClassLocationText(item) {
+  if (!item) return "";
+
+  const savedPlace = cleanText(item.place);
+  const teacher = cleanText(item.teacher);
+  const teacherLabel = teacher ? `Prof. ${teacher.replace(/^prof\.?\s*/i, "")}` : "";
+
+  if (savedPlace && (!teacherLabel || savedPlace.toLowerCase().includes(teacher.toLowerCase()))) {
+    return savedPlace;
+  }
+
+  return formatClassPlace({
+    room: item.room || savedPlace,
+    teacher
+  });
+}
+
+function getClassRoomText(item) {
+  if (!item) return "";
+  if (item.room) return cleanText(item.room);
+
+  const place = cleanText(item.place);
+  if (!item.teacher) return place;
+
+  return cleanText(place.replace(new RegExp(`\\s*·?\\s*prof\\.?\\s*${escapeRegExp(cleanText(item.teacher))}`, "i"), ""));
+}
+
+function getClassTeacherText(item) {
+  return item && item.teacher ? cleanText(item.teacher).replace(/^prof\.?\s*/i, "") : "";
 }
 
 function renderTasks() {
@@ -1875,10 +1975,15 @@ function saveClass(event) {
   }
 
   const existing = state.classes.find((item) => item.id === id);
+  const place = $("#classPlace").value.trim();
   const nextClass = {
     id,
     name: $("#className").value.trim(),
-    place: $("#classPlace").value.trim(),
+    place,
+    room: place,
+    teacher: existing && existing.teacher ? existing.teacher : "",
+    source: existing && existing.source ? existing.source : undefined,
+    externalId: existing && existing.externalId ? existing.externalId : undefined,
     color: $("#classColor").value || DEFAULT_CLASS_COLOR,
     start: $("#classStart").value,
     end: $("#classEnd").value,
@@ -2119,12 +2224,15 @@ function renderClassDetail(item) {
     .sort((a, b) => a - b)
     .map((day) => `<span class="tag">${DAY_NAMES[day]}</span>`)
     .join("");
+  const room = getClassRoomText(item);
+  const teacher = getClassTeacherText(item);
 
   elements.classDetailMeta.style.setProperty("--class-color", item.color || DEFAULT_CLASS_COLOR);
   elements.classDetailMeta.innerHTML = `
     <div>
       <strong>${item.start} - ${item.end}</strong>
-      <p class="muted">${item.place ? escapeHtml(item.place) : "Sin aula registrada"}</p>
+      <p class="muted">${room ? `Aula: ${escapeHtml(room)}` : "Sin aula registrada"}</p>
+      ${teacher ? `<p class="muted">Profesor: ${escapeHtml(teacher)}</p>` : ""}
     </div>
     <div class="tag-row">${days}</div>
   `;
@@ -2867,4 +2975,8 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#039;"
   })[char]);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
