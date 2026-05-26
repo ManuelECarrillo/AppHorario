@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain>siit.itdurango.edu.mx</domain>
+        <trust-anchors>
+            <certificates src="@raw/sectigo_root_r46" />
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

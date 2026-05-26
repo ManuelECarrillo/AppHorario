@@ -594,6 +594,28 @@ h2 {
   padding-top: 4px;
 }
 
+.sii-login-message {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.sii-login-message[data-tone="success"] {
+  color: var(--primary-dark);
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--line));
+}
+
+.sii-login-message[data-tone="error"] {
+  color: #7b2116;
+  border-color: color-mix(in srgb, #c7503d 42%, var(--line));
+  background: color-mix(in srgb, #c7503d 12%, var(--surface));
+}
+
+.sii-login-message[data-tone="pending"] {
+  color: var(--gold);
+}
+
 .field,
 .toggle-row {
   display: grid;

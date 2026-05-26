@@ -1,6 +1,7 @@
 const STORAGE_KEY = "appHorario.state.v1";
 const AUDIO_DB_NAME = "appHorario.audio.v1";
 const AUDIO_STORE_NAME = "recordings";
+const SII_LOGIN_URL = "https://siit.itdurango.edu.mx/sistema/acceso.php";
 const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const WEEK_DAYS = [1, 2, 3, 4, 5, 6, 0];
 const DEFAULT_CLASS_COLOR = "#216869";
@@ -162,6 +163,9 @@ const elements = {
   recordingStatus: $("#recordingStatus"),
   notifyButton: $("#notifyButton"),
   testNotificationButton: $("#testNotificationButton"),
+  siiStatus: $("#siiStatus"),
+  siiLoginMessage: $("#siiLoginMessage"),
+  siiSubmitButton: $("#siiSubmitButton"),
   installButton: $("#installButton"),
   exportButton: $("#exportButton"),
   importFile: $("#importFile"),
@@ -429,11 +433,129 @@ function bindForms() {
   $("#taskForm").addEventListener("submit", saveTask);
   $("#examForm").addEventListener("submit", saveExam);
   $("#noteForm").addEventListener("submit", saveNote);
+  $("#siiLoginForm").addEventListener("submit", loginSii);
   $("#detailAddTask").addEventListener("click", addTaskFromDetail);
   $("#detailAddExam").addEventListener("click", addExamFromDetail);
   $("#detailEditClass").addEventListener("click", editClassFromDetail);
   elements.recordAudioButton.addEventListener("click", startAudioRecording);
   elements.stopAudioButton.addEventListener("click", stopAudioRecording);
+}
+
+async function loginSii(event) {
+  event.preventDefault();
+
+  const control = $("#siiControl").value.trim();
+  const password = $("#siiPassword").value.trim();
+
+  if (!control || !password) {
+    setSiiLoginMessage("Escribe tu número de control y NIP para continuar.", "error");
+    return;
+  }
+
+  if (!/^\d{1,4}$/.test(password)) {
+    setSiiLoginMessage("El NIP debe ser numérico y de máximo 4 dígitos.", "error");
+    return;
+  }
+
+  setSiiBusy(true);
+  setSiiLoginMessage("Conectando con el SII...", "pending");
+
+  try {
+    const response = await postSiiLogin(control, password);
+    if (!isSiiLoginSuccessful(response)) {
+      setSiiLoginMessage("No se pudo confirmar el acceso. Revisa número de control y NIP.", "error");
+      setSiiStatus("SII escolar sin conectar.");
+      return;
+    }
+
+    $("#siiPassword").value = "";
+    setSiiLoginMessage("Conexión correcta. En el siguiente paso leeremos el horario.", "success");
+    setSiiStatus(`SII conectado para ${control}.`);
+  } catch {
+    setSiiLoginMessage("No se pudo conectar con el SII. Revisa internet o intenta más tarde.", "error");
+    setSiiStatus("SII escolar sin conectar.");
+  } finally {
+    setSiiBusy(false);
+  }
+}
+
+async function postSiiLogin(control, password) {
+  const body = new URLSearchParams({
+    tipo: "a",
+    usuario: control,
+    contrasena: password
+  }).toString();
+
+  const options = {
+    url: SII_LOGIN_URL,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    },
+    data: body,
+    responseType: "text",
+    connectTimeout: 15000,
+    readTimeout: 20000
+  };
+
+  const capacitorHttp = getCapacitorHttpPlugin();
+  if (capacitorHttp && typeof capacitorHttp.request === "function") {
+    return capacitorHttp.request(options);
+  }
+
+  const response = await fetch(SII_LOGIN_URL, {
+    method: "POST",
+    headers: options.headers,
+    body
+  });
+
+  return {
+    status: response.status,
+    url: response.url,
+    data: await response.text()
+  };
+}
+
+function isSiiLoginSuccessful(response) {
+  if (!response || response.status < 200 || response.status >= 400) return false;
+
+  const html = typeof response.data === "string" ? response.data.toLowerCase() : "";
+  if (!html) return true;
+
+  const looksLikeLogin = html.includes("name=\"acceso\"")
+    || html.includes("name='acceso'")
+    || html.includes("autentific")
+    || html.includes("no. de control")
+    || html.includes("introduce los datos correspondientes");
+  const looksRejected = html.includes("incorrect")
+    || html.includes("inválid")
+    || html.includes("invalid")
+    || html.includes("no existe");
+
+  return !looksLikeLogin && !looksRejected;
+}
+
+function getCapacitorHttpPlugin() {
+  if (window.Capacitor && window.Capacitor.Plugins) {
+    return window.Capacitor.Plugins.CapacitorHttp;
+  }
+
+  return window.CapacitorHttp || null;
+}
+
+function setSiiBusy(isBusy) {
+  if (elements.siiSubmitButton) elements.siiSubmitButton.disabled = isBusy;
+}
+
+function setSiiLoginMessage(message, tone = "") {
+  if (!elements.siiLoginMessage) return;
+  elements.siiLoginMessage.textContent = message;
+  elements.siiLoginMessage.dataset.tone = tone;
+}
+
+function setSiiStatus(message) {
+  if (elements.siiStatus) elements.siiStatus.textContent = message;
 }
 
 function bindSettings() {

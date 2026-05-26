@@ -169,6 +169,10 @@
               <input id="classStartEnabled" type="checkbox">
             </label>
             <div class="settings-actions">
+              <button class="text-button" type="button" id="siiLoginButton" data-open-dialog="siiLoginDialog">
+                <i data-lucide="download"></i>
+                Conectar SII
+              </button>
               <button class="text-button" type="button" id="testNotificationButton">
                 <i data-lucide="bell"></i>
                 Probar notificación
@@ -183,11 +187,36 @@
                 <input id="importFile" type="file" accept="application/json">
               </label>
             </div>
+            <p class="muted install-hint" id="siiStatus">SII escolar sin conectar.</p>
             <p class="muted install-hint" id="installHint">Se puede instalar en el teléfono desde el navegador compatible.</p>
           </div>
         </section>
       </main>
     </div>
+
+    <dialog class="dialog" id="siiLoginDialog">
+      <form method="dialog" id="siiLoginForm">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">SII escolar</p>
+            <h2>Iniciar sesión</h2>
+          </div>
+          <button class="icon-button small" type="button" data-close-dialog="siiLoginDialog" aria-label="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <label class="field">
+          Número de control
+          <input id="siiControl" inputmode="numeric" autocomplete="username" maxlength="30" required placeholder="Tu número de control">
+        </label>
+        <label class="field">
+          NIP
+          <input id="siiPassword" type="password" inputmode="numeric" autocomplete="current-password" maxlength="4" required placeholder="4 dígitos">
+        </label>
+        <p class="muted sii-login-message" id="siiLoginMessage">La contraseña solo se usa para conectar con el SII; no se guarda en la app.</p>
+        <button class="primary-button" type="submit" id="siiSubmitButton">Conectar</button>
+      </form>
+    </dialog>
 
     <dialog class="dialog" id="classDialog">
       <form method="dialog" id="classForm">
