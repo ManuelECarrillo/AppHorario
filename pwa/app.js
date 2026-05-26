@@ -3,7 +3,7 @@ const AUDIO_DB_NAME = "appHorario.audio.v1";
 const AUDIO_STORE_NAME = "recordings";
 const DEFAULT_SII_LOGIN_URL = "https://siit.itdurango.edu.mx/sistema/acceso.php";
 const SII_CLASS_SOURCE = "sii";
-const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const DAY_NAMES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const WEEK_DAYS = [1, 2, 3, 4, 5, 6, 0];
 const DEFAULT_CLASS_COLOR = "#216869";
 const PRIORITY_LABELS = {
@@ -463,25 +463,25 @@ async function loginSii(event) {
 
   try {
     const response = await postSiiLogin(control, password);
+    const importedClasses = parseSiiSchedule(response.data);
+    if (importedClasses.length) {
+      importSiiClasses(importedClasses);
+      $("#siiPassword").value = "";
+      closeDialog("siiLoginDialog");
+      setSiiLoginMessage("La contraseña solo se usa para conectar con el SII; no se guarda en la app.");
+      setSiiStatus(`Horario importado: ${importedClasses.length} clase${importedClasses.length === 1 ? "" : "s"}.`);
+      return;
+    }
+
     if (!isSiiLoginSuccessful(response)) {
       setSiiLoginMessage("No se pudo confirmar el acceso. Revisa número de control y NIP.", "error");
       setSiiStatus("SII escolar sin conectar.");
       return;
     }
 
-    const importedClasses = parseSiiSchedule(response.data);
-    if (!importedClasses.length) {
-      $("#siiPassword").value = "";
-      setSiiLoginMessage("Conexión correcta, pero todavía no encontré clases en la respuesta.", "success");
-      setSiiStatus(`SII conectado para ${control}.`);
-      return;
-    }
-
-    importSiiClasses(importedClasses);
     $("#siiPassword").value = "";
-    closeDialog("siiLoginDialog");
-    setSiiLoginMessage("La contraseña solo se usa para conectar con el SII; no se guarda en la app.");
-    setSiiStatus(`Horario importado: ${importedClasses.length} clase${importedClasses.length === 1 ? "" : "s"}.`);
+    setSiiLoginMessage("Conexión correcta, pero todavía no encontré clases en la respuesta.", "success");
+    setSiiStatus(`SII conectado para ${control}.`);
   } catch {
     setSiiLoginMessage("No se pudo conectar con el SII. Revisa internet o intenta más tarde.", "error");
     setSiiStatus("SII escolar sin conectar.");
