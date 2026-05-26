@@ -888,7 +888,7 @@ function cleanText(value) {
 }
 
 function splitSiiClassNameAndTeacher(value, knownTeacher = "") {
-  const originalName = cleanText(value);
+  const originalName = stripLeadingSiiNoise(cleanText(value));
   let name = originalName;
   let teacher = cleanText(knownTeacher).replace(/^prof\.?\s*/i, "");
 
@@ -920,10 +920,141 @@ function splitSiiClassNameAndTeacher(value, knownTeacher = "") {
     }
   }
 
+  if (!teacher) {
+    const guessed = splitTeacherSuffix(name);
+    if (guessed) {
+      name = guessed.name;
+      teacher = guessed.teacher;
+    }
+  }
+
   return {
     name: cleanText(name) || originalName,
     teacher
   };
+}
+
+function stripLeadingSiiNoise(value) {
+  const tokens = cleanText(value).split(" ").filter(Boolean);
+  let index = 0;
+  let removedNumericTokens = 0;
+
+  while (index < tokens.length && removedNumericTokens < 7 && /\d/.test(tokens[index])) {
+    index += 1;
+    removedNumericTokens += 1;
+  }
+
+  return removedNumericTokens ? tokens.slice(index).join(" ") : cleanText(value);
+}
+
+function splitTeacherSuffix(value) {
+  const tokens = cleanText(value).split(" ").filter(Boolean);
+  if (tokens.length < 6) return null;
+
+  const possibleLengths = [4, 3, 5];
+  for (const length of possibleLengths) {
+    if (tokens.length <= length + 1) continue;
+
+    const subjectTokens = tokens.slice(0, -length);
+    const teacherTokens = tokens.slice(-length);
+    const subject = subjectTokens.join(" ");
+    const teacher = cleanTeacherName(teacherTokens.join(" "));
+
+    if (!subject || !teacher) continue;
+    if (!looksLikeSubjectText(subject)) continue;
+    if (!looksLikeTeacherName(teacher)) continue;
+
+    return { name: subject, teacher };
+  }
+
+  return null;
+}
+
+function looksLikeSubjectText(value) {
+  const normalized = normalizeSearchText(value);
+  const subjectWords = [
+    "administracion",
+    "algebra",
+    "arquitectura",
+    "automatas",
+    "base",
+    "calculo",
+    "calidad",
+    "compiladores",
+    "contabilidad",
+    "datos",
+    "desarrollo",
+    "ecuaciones",
+    "estadistica",
+    "etica",
+    "fisica",
+    "fundamentos",
+    "gestion",
+    "graficacion",
+    "ingenieria",
+    "ingles",
+    "inteligencia",
+    "interfaces",
+    "investigacion",
+    "lenguajes",
+    "matematicas",
+    "metodos",
+    "moviles",
+    "operativos",
+    "probabilidad",
+    "programacion",
+    "proyectos",
+    "quimica",
+    "redes",
+    "simulacion",
+    "sistemas",
+    "software",
+    "taller",
+    "topicos",
+    "tutoria",
+    "web"
+  ];
+
+  return subjectWords.some((word) => new RegExp(`(^|\\s)${word}(\\s|$)`).test(normalized));
+}
+
+function looksLikeTeacherName(value) {
+  const tokens = cleanText(value).split(" ").filter(Boolean);
+  if (tokens.length < 3 || tokens.length > 5) return false;
+  if (tokens.some((token) => /\d/.test(token))) return false;
+
+  const normalized = normalizeSearchText(value);
+  const nonNameWords = [
+    "administracion",
+    "algebra",
+    "arquitectura",
+    "base",
+    "calculo",
+    "clase",
+    "datos",
+    "desarrollo",
+    "edificio",
+    "fundamentos",
+    "horario",
+    "ingenieria",
+    "laboratorio",
+    "programacion",
+    "salon",
+    "sistemas",
+    "software",
+    "taller"
+  ];
+
+  return !nonNameWords.some((word) => new RegExp(`(^|\\s)${word}(\\s|$)`).test(normalized));
+}
+
+function normalizeSearchText(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function cleanTeacherName(value) {
