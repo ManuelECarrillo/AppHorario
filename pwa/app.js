@@ -688,7 +688,7 @@ function normalizeSiiScheduleRow(row, index = 0) {
 
   const dayColumnSchedule = getScheduleFromDayColumns(row);
   const range = parseTimeRange(pickFirst(row, ["horario", "hora", "time", "rango", "periodo", "schedule_time"]));
-  const name = pickFirst(row, [
+  const rawName = pickFirst(row, [
     "materia",
     "asignatura",
     "nombre",
@@ -720,6 +720,9 @@ function normalizeSiiScheduleRow(row, index = 0) {
     "nom_docente",
     "empleado"
   ]);
+  const parsedName = splitSiiClassNameAndTeacher(rawName, teacher);
+  const name = parsedName.name;
+  const teacherName = parsedName.teacher || teacher;
   const room = pickFirst(row, [
     "aula",
     "salon",
@@ -775,12 +778,12 @@ function normalizeSiiScheduleRow(row, index = 0) {
 
   return {
     id: createId(),
-    externalId: pickFirst(row, ["id", "clave", "materia_id", "classId", "class_id", "grupo_id"]) || `${slugify(name)}-${start}-${end}-${uniqueDays.join("")}-${index}`,
+    externalId: pickFirst(row, ["id", "clave", "materia_id", "classId", "class_id", "grupo_id"]) || `${slugify(rawName || name)}-${start}-${end}-${uniqueDays.join("")}-${index}`,
     source: SII_CLASS_SOURCE,
     name: String(name).trim(),
-    place: formatClassPlace({ room, teacher }),
+    place: formatClassPlace({ room, teacher: teacherName }),
     room: String(room).trim(),
-    teacher: String(teacher).trim(),
+    teacher: String(teacherName).trim(),
     color: pickClassColor(index),
     start,
     end,
@@ -903,6 +906,54 @@ function normalizeHeader(value) {
 
 function cleanText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function splitSiiClassNameAndTeacher(value, knownTeacher = "") {
+  const originalName = cleanText(value);
+  let name = originalName;
+  let teacher = cleanText(knownTeacher).replace(/^prof\.?\s*/i, "");
+
+  if (!name) {
+    return { name: "", teacher };
+  }
+
+  if (teacher) {
+    const teacherPattern = escapeRegExp(teacher).replace(/\s+/g, "\\s+");
+    const withoutTeacher = cleanText(name
+      .replace(new RegExp(`(?:[\\s·|,;:/\\-–—]+)?(?:prof(?:esor|esora)?\\.?|docente|maestr[oa]|catedr[aá]tico|instructor)?\\s*:?\\s*${teacherPattern}`, "i"), "")
+      .replace(/[·|,;:/\-–—]+$/g, ""));
+
+    if (withoutTeacher && withoutTeacher.length >= 3) {
+      name = withoutTeacher;
+    }
+  }
+
+  const labeledTeacher = name.match(/(?:^|[\s·|,;:/\-–—]+)(?:prof(?:esor|esora)?\.?|docente|maestr[oa]|catedr[aá]tico|instructor)\s*:?\s+(.+)$/i);
+  if (labeledTeacher) {
+    const beforeLabel = cleanText(name
+      .slice(0, labeledTeacher.index)
+      .replace(/[·|,;:/\-–—]+$/g, ""));
+    const teacherCandidate = cleanTeacherName(labeledTeacher[1]);
+
+    if (beforeLabel && teacherCandidate) {
+      name = beforeLabel;
+      teacher = teacher || teacherCandidate;
+    }
+  }
+
+  return {
+    name: cleanText(name) || originalName,
+    teacher
+  };
+}
+
+function cleanTeacherName(value) {
+  const text = cleanText(value)
+    .replace(/\b(?:aula|sal[oó]n|salon|room|classroom|grupo|edificio|horario)\b.*$/i, "")
+    .replace(/[·|,;:/\-–—]+$/g, "")
+    .trim();
+
+  return text.length >= 3 ? text : "";
 }
 
 function normalizeTime(value) {
@@ -1357,7 +1408,7 @@ function buildNativeNotificationSchedule(now) {
         scheduled.push({
           key: `${dateValue}:task-prompt:${item.id}`,
           title: "¿Alguna tarea?",
-          body: `¿Alguna tarea de ${item.name}?`,
+          body: `¿Alguna tarea de ${getClassDisplayName(item)}?`,
           at,
           extra: { classId: item.id, quickTask: true }
         });
@@ -1369,7 +1420,7 @@ function buildNativeNotificationSchedule(now) {
         scheduled.push({
           key: `${dateValue}:class-start:${item.id}`,
           title: "Clase por iniciar",
-          body: `${item.name} inicia en ${minutes} min.`,
+          body: `${getClassDisplayName(item)} inicia en ${minutes} min.`,
           at,
           extra: { classId: item.id }
         });
@@ -1527,12 +1578,12 @@ function tick() {
   if (current) {
     elements.classStatusLabel.textContent = "En clase";
     const location = getClassLocationText(current);
-    elements.nextClassText.textContent = `${current.name}${location ? ` · ${location}` : ""}`;
+    elements.nextClassText.textContent = `${getClassDisplayName(current)}${location ? ` · ${location}` : ""}`;
   } else {
     elements.classStatusLabel.textContent = "Siguiente clase";
     const location = next ? getClassLocationText(next) : "";
     elements.nextClassText.textContent = next
-      ? `${next.name} a las ${next.start}${location ? ` · ${location}` : ""}`
+      ? `${getClassDisplayName(next)} a las ${next.start}${location ? ` · ${location}` : ""}`
       : "Sin clases próximas";
   }
 
@@ -1568,7 +1619,7 @@ function renderSmartPanel() {
   elements.smartPanel.innerHTML = `
     <div>
       <p class="eyebrow">${current ? "En clase" : `Faltan ${minutesLeft} min`}</p>
-      <h2>${escapeHtml(candidate.name)}</h2>
+      <h2>${escapeHtml(getClassDisplayName(candidate))}</h2>
       <p class="muted">¿Quieres anotar una tarea o revisar esta clase?</p>
     </div>
     <div class="smart-actions">
@@ -1636,7 +1687,7 @@ function renderTimelineItem(item) {
     <article class="timeline-item ${isCurrent ? "current" : ""}" style="--class-color:${item.color || DEFAULT_CLASS_COLOR}">
       <div class="time-pill">${item.start}</div>
       <div>
-        <h3>${escapeHtml(item.name)}${isCurrent ? ` <span class="status-chip">En clase</span>` : ""}</h3>
+        <h3>${escapeHtml(getClassDisplayName(item))}${isCurrent ? ` <span class="status-chip">En clase</span>` : ""}</h3>
         <p class="muted">${item.end}${location ? ` · ${escapeHtml(location)}` : ""}${pendingCount ? ` · ${pendingCount} tarea${pendingCount === 1 ? "" : "s"}` : ""}</p>
       </div>
     </article>
@@ -1662,7 +1713,7 @@ function renderWeekSchedule() {
 function renderWeekItem(item) {
   return `
     <article class="week-item" style="--class-color:${item.color || DEFAULT_CLASS_COLOR}">
-      <strong>${escapeHtml(item.name)}</strong>
+      <strong>${escapeHtml(getClassDisplayName(item))}</strong>
       <span>${item.start} - ${item.end}</span>
     </article>
   `;
@@ -1696,11 +1747,11 @@ function renderClassCard(item) {
     <article class="class-card" style="--class-color:${item.color || DEFAULT_CLASS_COLOR}">
       <div class="card-title-row">
         <div>
-          <h3>${escapeHtml(item.name)}</h3>
+          <h3>${escapeHtml(getClassDisplayName(item))}</h3>
           <p class="muted">${item.start} - ${item.end}${location ? ` · ${escapeHtml(location)}` : ""}${pendingCount ? ` · ${pendingCount} pendiente${pendingCount === 1 ? "" : "s"}` : ""}</p>
         </div>
         <div class="card-actions">
-          <button class="tiny-button" type="button" data-delete-class="${item.id}" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">
+          <button class="tiny-button" type="button" data-delete-class="${item.id}" aria-label="Eliminar ${escapeHtml(getClassDisplayName(item))}" title="Eliminar">
             <i data-lucide="trash-2"></i>
           </button>
         </div>
@@ -1712,6 +1763,11 @@ function renderClassCard(item) {
       </button>
     </article>
   `;
+}
+
+function getClassDisplayName(item) {
+  if (!item) return "";
+  return splitSiiClassNameAndTeacher(item.name, item.teacher).name || item.name || "";
 }
 
 function getClassLocationText(item) {
@@ -1841,7 +1897,7 @@ function renderTaskClassOptions() {
   elements.taskClass.innerHTML = `<option value="">Sin clase</option>` + state.classes
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`)
+    .map((item) => `<option value="${item.id}">${escapeHtml(getClassDisplayName(item))}</option>`)
     .join("");
 }
 
@@ -1849,7 +1905,7 @@ function renderExamClassOptions() {
   elements.examClass.innerHTML = `<option value="">Sin clase</option>` + state.classes
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`)
+    .map((item) => `<option value="${item.id}">${escapeHtml(getClassDisplayName(item))}</option>`)
     .join("");
 }
 
@@ -2035,7 +2091,7 @@ function setClassColor(color) {
 
 function deleteClass(id) {
   const item = state.classes.find((classItem) => classItem.id === id);
-  if (!item || !confirm(`¿Eliminar ${item.name}?`)) return;
+  if (!item || !confirm(`¿Eliminar ${getClassDisplayName(item)}?`)) return;
 
   state.classes = state.classes.filter((classItem) => classItem.id !== id);
   state.tasks = state.tasks.map((task) => task.classId === id ? { ...task, classId: "" } : task);
@@ -2207,7 +2263,7 @@ function openClassDetail(id) {
   if (!item) return;
 
   $("#noteClassId").value = item.id;
-  $("#notesTitle").textContent = item.name;
+  $("#notesTitle").textContent = getClassDisplayName(item);
   $("#noteText").value = "";
   renderClassDetail(item);
   renderNotesHistory(item);
@@ -2296,7 +2352,7 @@ function fillQuickTaskForm(classId) {
   const item = getClassById(classId);
   resetTaskForm();
   $("#taskClass").value = classId || "";
-  $("#taskTitle").value = item ? `Tarea de ${item.name}` : "";
+  $("#taskTitle").value = item ? `Tarea de ${getClassDisplayName(item)}` : "";
   $("#taskPriority").value = "normal";
   $("#taskRepeat").value = "none";
 }
@@ -2652,13 +2708,13 @@ function checkClassNotifications(now) {
       notifyOnce(
         `${today}:task-prompt:${item.id}`,
         "¿Alguna tarea?",
-        `¿Alguna tarea de ${item.name}?`,
+        `¿Alguna tarea de ${getClassDisplayName(item)}?`,
         { classId: item.id, quickTask: true }
       );
     }
 
     if (state.settings.classStartEnabled && minutesLeft === state.settings.classStartMinutes) {
-      notifyOnce(`${today}:class-start:${item.id}`, "Clase por iniciar", `${item.name} inicia en ${minutesLeft} min.`, { classId: item.id });
+      notifyOnce(`${today}:class-start:${item.id}`, "Clase por iniciar", `${getClassDisplayName(item)} inicia en ${minutesLeft} min.`, { classId: item.id });
     }
   });
 }
@@ -2836,7 +2892,7 @@ async function deleteAudioBlob(id) {
 
 function getClassName(id) {
   const classItem = getClassById(id);
-  return classItem ? classItem.name : "";
+  return classItem ? getClassDisplayName(classItem) : "";
 }
 
 function getClassById(id) {
