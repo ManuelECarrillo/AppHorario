@@ -96,28 +96,7 @@ const defaultState = {
     taskPromptEnabled: true,
     classStartEnabled: true
   },
-  classes: [
-    {
-      id: createId(),
-      name: "Matemáticas",
-      place: "Salón 204",
-      color: "#216869",
-      start: "08:00",
-      end: "08:50",
-      days: [1, 3, 5],
-      notes: []
-    },
-    {
-      id: createId(),
-      name: "Historia",
-      place: "Biblioteca",
-      color: "#c7503d",
-      start: "10:00",
-      end: "10:50",
-      days: [2, 4],
-      notes: []
-    }
-  ],
+  classes: [],
   tasks: [],
   exams: [],
   notified: {}
