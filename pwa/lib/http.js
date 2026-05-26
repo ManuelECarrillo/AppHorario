@@ -24,6 +24,14 @@
     return window.CapacitorHttp || window.CapacitorHttpPlugin || null;
   }
 
+  function getAppHorarioHttpPlugin() {
+    if (window.Capacitor && window.Capacitor.Plugins) {
+      return window.Capacitor.Plugins.AppHorarioHttp;
+    }
+
+    return null;
+  }
+
   function isNativeHttpAvailable() {
     const capacitorHttp = getCapacitorHttpPlugin();
     return Boolean(capacitorHttp && typeof capacitorHttp.request === "function");
@@ -49,6 +57,17 @@
       connectTimeout: options.connectTimeout || 20000,
       readTimeout: options.readTimeout || 30000
     };
+
+    const appHorarioHttp = getAppHorarioHttpPlugin();
+    if (appHorarioHttp && typeof appHorarioHttp.postForm === "function") {
+      return appHorarioHttp.postForm({
+        url,
+        body,
+        headers,
+        connectTimeout: requestOptions.connectTimeout,
+        readTimeout: requestOptions.readTimeout
+      });
+    }
 
     const capacitorHttp = getCapacitorHttpPlugin();
     if (capacitorHttp && typeof capacitorHttp.request === "function") {
