@@ -1,8 +1,19 @@
 (function () {
-  function getApiUrl() {
-    return window.APPHORARIO_ENV && window.APPHORARIO_ENV.API_URL
-      ? window.APPHORARIO_ENV.API_URL
+  function getEnvValue(key) {
+    return window.APPHORARIO_ENV && window.APPHORARIO_ENV[key]
+      ? String(window.APPHORARIO_ENV[key]).trim()
       : "";
+  }
+
+  function getApiUrl(kind = "default") {
+    const accessUrl = getEnvValue("API_URL_ACCESO");
+    const scheduleUrl = getEnvValue("API_URL_HORARIO");
+    const defaultUrl = getEnvValue("API_URL");
+
+    if (kind === "access") return accessUrl || defaultUrl || scheduleUrl;
+    if (kind === "schedule") return scheduleUrl || defaultUrl || accessUrl;
+
+    return defaultUrl || accessUrl || scheduleUrl;
   }
 
   function getCapacitorHttpPlugin() {
@@ -10,10 +21,19 @@
       return window.Capacitor.Plugins.CapacitorHttp;
     }
 
-    return window.CapacitorHttp || null;
+    return window.CapacitorHttp || window.CapacitorHttpPlugin || null;
+  }
+
+  function isNativeHttpAvailable() {
+    const capacitorHttp = getCapacitorHttpPlugin();
+    return Boolean(capacitorHttp && typeof capacitorHttp.request === "function");
   }
 
   async function postForm(url, data, options = {}) {
+    if (!url) {
+      throw Object.assign(new Error("Missing request URL."), { code: "missing_url" });
+    }
+
     const body = new URLSearchParams(data).toString();
     const headers = {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -26,8 +46,8 @@
       headers,
       data: body,
       responseType: "text",
-      connectTimeout: options.connectTimeout || 15000,
-      readTimeout: options.readTimeout || 20000
+      connectTimeout: options.connectTimeout || 20000,
+      readTimeout: options.readTimeout || 30000
     };
 
     const capacitorHttp = getCapacitorHttpPlugin();
@@ -41,16 +61,20 @@
       body
     });
 
+    const responseData = await response.text();
+
     return {
       status: response.status,
       url: response.url,
-      data: await response.text(),
+      data: responseData,
       headers: {}
     };
   }
 
   window.AppHorarioHttp = {
     getApiUrl,
+    getEnvValue,
+    isNativeHttpAvailable,
     postForm
   };
 })();

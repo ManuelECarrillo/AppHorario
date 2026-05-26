@@ -462,8 +462,16 @@ async function loginSii(event) {
   setSiiLoginMessage("Conectando con el SII...", "pending");
 
   try {
-    const response = await postSiiLogin(control, password);
-    const importedClasses = parseSiiSchedule(response.data);
+    const accessResponse = await postSiiLogin(control, password);
+    let response = accessResponse;
+    let importedClasses = parseSiiSchedule(accessResponse.data);
+
+    if (!importedClasses.length && shouldRequestSiiSchedule()) {
+      setSiiLoginMessage("Acceso revisado. Buscando el horario del alumno...", "pending");
+      response = await postSiiSchedule(control, password);
+      importedClasses = parseSiiSchedule(response.data);
+    }
+
     if (importedClasses.length) {
       importSiiClasses(importedClasses);
       $("#siiPassword").value = "";
@@ -473,17 +481,24 @@ async function loginSii(event) {
       return;
     }
 
-    if (!isSiiLoginSuccessful(response)) {
-      setSiiLoginMessage("No se pudo confirmar el acceso. Revisa número de control y NIP.", "error");
+    const responseSummary = describeSiiResponse(response, importedClasses.length);
+    if (response && (response.status < 200 || response.status >= 400)) {
+      setSiiLoginMessage(`La app llegó al endpoint, pero el servidor respondió con HTTP ${response.status}. ${responseSummary}`, "error");
+      setSiiStatus("SII escolar sin conectar.");
+      return;
+    }
+
+    if (!isSiiLoginSuccessful(accessResponse) && !isSiiLoginSuccessful(response)) {
+      setSiiLoginMessage(`No se pudo confirmar el acceso. Revisa número de control y NIP. ${responseSummary}`, "error");
       setSiiStatus("SII escolar sin conectar.");
       return;
     }
 
     $("#siiPassword").value = "";
-    setSiiLoginMessage("Conexión correcta, pero todavía no encontré clases en la respuesta.", "success");
+    setSiiLoginMessage(`Conexión correcta, pero todavía no encontré clases en la respuesta. ${responseSummary}`, "success");
     setSiiStatus(`SII conectado para ${control}.`);
-  } catch {
-    setSiiLoginMessage("No se pudo conectar con el SII. Revisa internet o intenta más tarde.", "error");
+  } catch (error) {
+    setSiiLoginMessage(getSiiLoginErrorMessage(error), "error");
     setSiiStatus("SII escolar sin conectar.");
   } finally {
     setSiiBusy(false);
@@ -491,24 +506,103 @@ async function loginSii(event) {
 }
 
 async function postSiiLogin(control, password) {
-  const url = getSiiApiUrl();
+  const url = getSiiApiUrl("access");
   if (!url) {
-    throw new Error("Missing SII API URL.");
+    throw Object.assign(new Error("Missing SII API URL."), { code: "missing_api_url" });
   }
 
-  return window.AppHorarioHttp.postForm(url, {
+  return postSiiForm(url, control, password);
+}
+
+async function postSiiSchedule(control, password) {
+  const url = getSiiApiUrl("schedule");
+  if (!url) {
+    throw Object.assign(new Error("Missing SII schedule URL."), { code: "missing_schedule_url" });
+  }
+
+  return postSiiForm(url, control, password);
+}
+
+async function postSiiForm(url, control, password) {
+  if (!window.AppHorarioHttp || typeof window.AppHorarioHttp.postForm !== "function") {
+    throw Object.assign(new Error("Missing HTTP client."), { code: "missing_http_client" });
+  }
+
+  const response = await window.AppHorarioHttp.postForm(url, {
     tipo: "a",
     usuario: control,
     contrasena: password
+  }, {
+    headers: {
+      "X-Requested-With": "XMLHttpRequest"
+    }
   });
+
+  return response;
 }
 
-function getSiiApiUrl() {
+function getSiiApiUrl(kind = "default") {
   if (window.AppHorarioHttp && typeof window.AppHorarioHttp.getApiUrl === "function") {
-    return window.AppHorarioHttp.getApiUrl() || DEFAULT_SII_LOGIN_URL;
+    return window.AppHorarioHttp.getApiUrl(kind);
   }
 
-  return DEFAULT_SII_LOGIN_URL;
+  return "";
+}
+
+function shouldRequestSiiSchedule() {
+  const accessUrl = getSiiApiUrl("access");
+  const scheduleUrl = getSiiApiUrl("schedule");
+  return Boolean(scheduleUrl && scheduleUrl !== accessUrl);
+}
+
+function describeSiiResponse(response, importedCount = 0) {
+  const status = response && response.status ? `HTTP ${response.status}` : "sin código HTTP";
+  const data = response ? response.data : "";
+  const dataKind = Array.isArray(data) ? "lista" : typeof data;
+  const dataSize = typeof data === "string"
+    ? `${data.length} caracteres`
+    : data && typeof data === "object"
+      ? `${Object.keys(data).length} campos`
+      : "sin datos";
+
+  return `Respuesta ${status}; formato ${dataKind}; ${dataSize}; ${importedCount} clases detectadas.`;
+}
+
+function getSiiLoginErrorMessage(error) {
+  if (error && error.code === "missing_api_url") {
+    return "No encontré la URL de acceso del SII dentro del build. Revisa que esté en .env como API_URL_ACCESO, API_URL_HORARIO o API_URL y vuelve a compilar la app.";
+  }
+
+  if (error && error.code === "missing_schedule_url") {
+    return "No encontré la URL del horario dentro del build. Revisa que esté en .env como API_URL_HORARIO o API_URL y vuelve a compilar la app.";
+  }
+
+  if (error && error.code === "missing_http_client") {
+    return "La app no cargó el cliente HTTP nativo. Vuelve a sincronizar y reinstalar el APK.";
+  }
+
+  if (error && error.code === "http_status") {
+    return `El servidor respondió con HTTP ${error.status || "desconocido"}. La app sí llegó al endpoint, pero el servidor rechazó la solicitud.`;
+  }
+
+  const message = cleanText(error && (error.message || String(error))).toLowerCase();
+  if (message.includes("timeout")) {
+    return "La conexión tardó demasiado. Puede ser internet lento o el servidor del SII/API ocupado.";
+  }
+
+  if (message.includes("ssl") || message.includes("trust anchor") || message.includes("certificate")) {
+    return "Android rechazó el certificado del servidor. La app ya acepta el certificado del SII, pero el endpoint puede estar usando otro certificado.";
+  }
+
+  if (message.includes("cleartext") || message.includes("http")) {
+    return "Android bloqueó o no pudo abrir la conexión HTTP. Ya habilité compatibilidad con endpoints http://; recompila e instala esta versión.";
+  }
+
+  if (message.includes("failed to fetch") || message.includes("cors")) {
+    return "El navegador bloqueó la conexión. En el teléfono debe usarse el cliente nativo del APK, no solo la web.";
+  }
+
+  return "No se pudo conectar con el SII. Revisa internet, confirma que el endpoint del .env esté activo e intenta otra vez.";
 }
 
 function isSiiLoginSuccessful(response) {
@@ -556,22 +650,34 @@ function getScheduleRows(data) {
   if (Array.isArray(data)) return data;
   if (!data || typeof data !== "object") return [];
 
-  const candidates = [
-    data.horario,
-    data.schedule,
-    data.clases,
-    data.classes,
-    data.data,
-    data.result,
-    data.rows
+  const candidateKeys = [
+    "horario",
+    "horarios",
+    "schedule",
+    "clases",
+    "classes",
+    "materias",
+    "subjects",
+    "data",
+    "result",
+    "rows",
+    "items",
+    "records"
   ];
 
-  for (const candidate of candidates) {
+  for (const [key, candidate] of Object.entries(data)) {
+    if (!candidateKeys.includes(normalizeHeader(key))) continue;
     if (Array.isArray(candidate)) return candidate;
     if (candidate && typeof candidate === "object") {
       const nestedRows = getScheduleRows(candidate);
       if (nestedRows.length) return nestedRows;
     }
+  }
+
+  for (const candidate of Object.values(data)) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const nestedRows = getScheduleRows(candidate);
+    if (nestedRows.length) return nestedRows;
   }
 
   return [];
@@ -580,24 +686,67 @@ function getScheduleRows(data) {
 function normalizeSiiScheduleRow(row, index = 0) {
   if (!row || typeof row !== "object") return null;
 
-  const name = pickFirst(row, ["materia", "asignatura", "nombre", "name", "clase", "subject"]);
-  const place = pickFirst(row, ["aula", "salon", "salón", "grupo", "lugar", "place", "room"]) || "";
-  const start = normalizeTime(pickFirst(row, ["inicio", "hora_inicio", "horaInicio", "start", "startTime", "entrada"]));
-  const end = normalizeTime(pickFirst(row, ["fin", "hora_fin", "horaFin", "end", "endTime", "salida"]));
-  const days = parseScheduleDays(pickFirst(row, ["dias", "días", "dia", "día", "days", "day", "weekday"]));
+  const dayColumnSchedule = getScheduleFromDayColumns(row);
+  const range = parseTimeRange(pickFirst(row, ["horario", "hora", "time", "rango", "periodo", "schedule_time"]));
+  const name = pickFirst(row, [
+    "materia",
+    "asignatura",
+    "nombre",
+    "nombre_materia",
+    "nombreMateria",
+    "materia_nombre",
+    "nom_materia",
+    "descripcion",
+    "name",
+    "clase",
+    "subject"
+  ]);
+  const place = pickFirst(row, ["aula", "salon", "salón", "ubicacion", "ubicación", "edificio", "grupo", "lugar", "place", "room"]) || "";
+  const start = normalizeTime(pickFirst(row, [
+    "inicio",
+    "hora_inicio",
+    "horaInicio",
+    "hora_ini",
+    "hora_inicial",
+    "start",
+    "startTime",
+    "entrada",
+    "hora1"
+  ])) || range.start || dayColumnSchedule.start;
+  const end = normalizeTime(pickFirst(row, [
+    "fin",
+    "hora_fin",
+    "horaFin",
+    "hora_final",
+    "end",
+    "endTime",
+    "salida",
+    "hora2"
+  ])) || range.end || dayColumnSchedule.end;
+  const days = parseScheduleDays(pickFirst(row, [
+    "dias",
+    "días",
+    "dia",
+    "día",
+    "days",
+    "day",
+    "weekday",
+    "semana"
+  ])).concat(dayColumnSchedule.days);
+  const uniqueDays = Array.from(new Set(days)).sort((a, b) => a - b);
 
-  if (!name || !start || !end || !days.length) return null;
+  if (!name || !start || !end || !uniqueDays.length) return null;
 
   return {
     id: createId(),
-    externalId: pickFirst(row, ["id", "clave", "materia_id", "classId"]) || `${slugify(name)}-${start}-${end}-${index}`,
+    externalId: pickFirst(row, ["id", "clave", "materia_id", "classId", "class_id", "grupo_id"]) || `${slugify(name)}-${start}-${end}-${uniqueDays.join("")}-${index}`,
     source: SII_CLASS_SOURCE,
     name: String(name).trim(),
     place: String(place).trim(),
     color: pickClassColor(index),
     start,
     end,
-    days,
+    days: uniqueDays,
     notes: [],
     recordings: []
   };
@@ -634,9 +783,10 @@ function mapScheduleCells(headers, cells) {
   if (!Object.keys(row).length) {
     row.materia = cells[0] || "";
     row.dias = cells.find((value) => parseScheduleDays(value).length) || "";
+    const timeRange = cells.map(parseTimeRange).find((value) => value.start && value.end);
     const times = cells.map(normalizeTime).filter(Boolean);
-    row.inicio = times[0] || "";
-    row.fin = times[1] || "";
+    row.inicio = timeRange ? timeRange.start : times[0] || "";
+    row.fin = timeRange ? timeRange.end : times[1] || "";
     row.aula = cells[cells.length - 1] || "";
   }
 
@@ -725,6 +875,54 @@ function normalizeTime(value) {
   const hour = Math.min(23, Number(match[1]));
   const minute = Math.min(59, Number(match[2]));
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function parseTimeRange(value) {
+  const text = cleanText(value);
+  const matches = Array.from(text.matchAll(/(\d{1,2}):?(\d{2})/g));
+  if (matches.length < 2) return { start: "", end: "" };
+
+  return {
+    start: normalizeTime(matches[0][0]),
+    end: normalizeTime(matches[1][0])
+  };
+}
+
+function getScheduleFromDayColumns(row) {
+  const schedule = { days: [], start: "", end: "" };
+  const dayColumns = [
+    { day: 0, keys: ["domingo", "dom", "sunday", "sun"] },
+    { day: 1, keys: ["lunes", "lun", "monday", "mon", "l"] },
+    { day: 2, keys: ["martes", "mar", "tuesday", "tue", "m"] },
+    { day: 3, keys: ["miercoles", "mie", "wednesday", "wed", "x"] },
+    { day: 4, keys: ["jueves", "jue", "thursday", "thu", "j"] },
+    { day: 5, keys: ["viernes", "vie", "friday", "fri", "v"] },
+    { day: 6, keys: ["sabado", "sab", "saturday", "sat", "s"] }
+  ];
+
+  Object.entries(row).forEach(([key, value]) => {
+    const normalizedKey = normalizeHeader(key);
+    const column = dayColumns.find((item) => item.keys.includes(normalizedKey));
+    if (!column || !isActiveScheduleCell(value)) return;
+
+    schedule.days.push(column.day);
+    const range = parseTimeRange(value);
+    if (!schedule.start && range.start) schedule.start = range.start;
+    if (!schedule.end && range.end) schedule.end = range.end;
+  });
+
+  schedule.days = Array.from(new Set(schedule.days)).sort((a, b) => a - b);
+  return schedule;
+}
+
+function isActiveScheduleCell(value) {
+  if (value === true) return true;
+  if (value === false || value === null || value === undefined) return false;
+
+  const text = cleanText(value).toLowerCase();
+  if (!text) return false;
+
+  return !["0", "no", "false", "-", "n/a", "na", "null"].includes(text);
 }
 
 function parseScheduleDays(value) {
