@@ -208,24 +208,25 @@
         </label>
         <label class="field">
           Color
-          <select id="classColor">
-            <option value="#216869">Verde estudio</option>
-            <option value="#c7503d">Rojo tarea</option>
-            <option value="#c7972b">Dorado</option>
-            <option value="#3563a9">Azul</option>
-            <option value="#7a4f9f">Morado</option>
-            <option value="#2f7d4f">Verde</option>
-            <option value="#0f766e">Turquesa</option>
-            <option value="#0891b2">Cian</option>
-            <option value="#2563eb">Azul fuerte</option>
-            <option value="#4f46e5">Índigo</option>
-            <option value="#9333ea">Violeta</option>
-            <option value="#db2777">Rosa</option>
-            <option value="#e11d48">Carmesí</option>
-            <option value="#ea580c">Naranja</option>
-            <option value="#65a30d">Lima</option>
-            <option value="#475569">Grafito</option>
-          </select>
+          <input id="classColor" type="hidden" value="#216869">
+          <div class="class-color-picker" id="classColorPicker" aria-label="Color de la clase">
+            <button class="color-swatch-button" type="button" data-class-color="#216869" style="--swatch:#216869" aria-label="Verde estudio"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#c7503d" style="--swatch:#c7503d" aria-label="Rojo tarea"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#c7972b" style="--swatch:#c7972b" aria-label="Dorado"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#3563a9" style="--swatch:#3563a9" aria-label="Azul"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#7a4f9f" style="--swatch:#7a4f9f" aria-label="Morado"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#2f7d4f" style="--swatch:#2f7d4f" aria-label="Verde"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#0f766e" style="--swatch:#0f766e" aria-label="Turquesa"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#0891b2" style="--swatch:#0891b2" aria-label="Cian"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#2563eb" style="--swatch:#2563eb" aria-label="Azul fuerte"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#4f46e5" style="--swatch:#4f46e5" aria-label="Índigo"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#9333ea" style="--swatch:#9333ea" aria-label="Violeta"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#db2777" style="--swatch:#db2777" aria-label="Rosa"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#e11d48" style="--swatch:#e11d48" aria-label="Carmesí"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#ea580c" style="--swatch:#ea580c" aria-label="Naranja"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#65a30d" style="--swatch:#65a30d" aria-label="Lima"><span></span></button>
+            <button class="color-swatch-button" type="button" data-class-color="#475569" style="--swatch:#475569" aria-label="Grafito"><span></span></button>
+          </div>
         </label>
         <div class="field-row">
           <label class="field">

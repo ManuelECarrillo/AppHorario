@@ -1295,6 +1295,12 @@ function bindDynamicActions() {
     const deleteAudioButton = event.target.closest("[data-delete-audio]");
     if (deleteAudioButton) {
       deleteAudio(deleteAudioButton.dataset.deleteAudio);
+      return;
+    }
+
+    const classColorButton = event.target.closest("[data-class-color]");
+    if (classColorButton) {
+      setClassColor(classColorButton.dataset.classColor);
     }
   });
 }
@@ -1302,9 +1308,9 @@ function bindDynamicActions() {
 function resetClassForm() {
   $("#classForm").reset();
   $("#classId").value = "";
-  $("#classColor").value = DEFAULT_CLASS_COLOR;
+  setClassColor(DEFAULT_CLASS_COLOR);
   $("#classStart").value = "08:00";
-  $("#classEnd").value = "08:50";
+  $("#classEnd").value = "09:00";
   $$('input[name="classDay"]').forEach((input) => input.checked = [1, 2, 3, 4, 5].includes(Number(input.value)));
 }
 
@@ -1354,10 +1360,22 @@ function fillClassForm(item) {
   $("#classId").value = item.id;
   $("#className").value = item.name;
   $("#classPlace").value = item.place || "";
-  $("#classColor").value = item.color || DEFAULT_CLASS_COLOR;
+  setClassColor(item.color || DEFAULT_CLASS_COLOR);
   $("#classStart").value = item.start;
   $("#classEnd").value = item.end;
   $$('input[name="classDay"]').forEach((input) => input.checked = item.days.includes(Number(input.value)));
+}
+
+function setClassColor(color) {
+  const normalizedColor = color || DEFAULT_CLASS_COLOR;
+  const input = $("#classColor");
+  if (input) input.value = normalizedColor;
+
+  $$("[data-class-color]").forEach((button) => {
+    const selected = button.dataset.classColor.toLowerCase() === normalizedColor.toLowerCase();
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
 }
 
 function deleteClass(id) {
