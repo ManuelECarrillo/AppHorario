@@ -1,7 +1,8 @@
 const STORAGE_KEY = "appHorario.state.v1";
 const AUDIO_DB_NAME = "appHorario.audio.v1";
 const AUDIO_STORE_NAME = "recordings";
-const SII_LOGIN_URL = "https://siit.itdurango.edu.mx/sistema/acceso.php";
+const DEFAULT_SII_LOGIN_URL = "https://siit.itdurango.edu.mx/sistema/acceso.php";
+const SII_CLASS_SOURCE = "sii";
 const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const WEEK_DAYS = [1, 2, 3, 4, 5, 6, 0];
 const DEFAULT_CLASS_COLOR = "#216869";
@@ -468,9 +469,19 @@ async function loginSii(event) {
       return;
     }
 
+    const importedClasses = parseSiiSchedule(response.data);
+    if (!importedClasses.length) {
+      $("#siiPassword").value = "";
+      setSiiLoginMessage("Conexión correcta, pero todavía no encontré clases en la respuesta.", "success");
+      setSiiStatus(`SII conectado para ${control}.`);
+      return;
+    }
+
+    importSiiClasses(importedClasses);
     $("#siiPassword").value = "";
-    setSiiLoginMessage("Conexión correcta. En el siguiente paso leeremos el horario.", "success");
-    setSiiStatus(`SII conectado para ${control}.`);
+    closeDialog("siiLoginDialog");
+    setSiiLoginMessage("La contraseña solo se usa para conectar con el SII; no se guarda en la app.");
+    setSiiStatus(`Horario importado: ${importedClasses.length} clase${importedClasses.length === 1 ? "" : "s"}.`);
   } catch {
     setSiiLoginMessage("No se pudo conectar con el SII. Revisa internet o intenta más tarde.", "error");
     setSiiStatus("SII escolar sin conectar.");
@@ -480,41 +491,24 @@ async function loginSii(event) {
 }
 
 async function postSiiLogin(control, password) {
-  const body = new URLSearchParams({
+  const url = getSiiApiUrl();
+  if (!url) {
+    throw new Error("Missing SII API URL.");
+  }
+
+  return window.AppHorarioHttp.postForm(url, {
     tipo: "a",
     usuario: control,
     contrasena: password
-  }).toString();
+  });
+}
 
-  const options = {
-    url: SII_LOGIN_URL,
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-    },
-    data: body,
-    responseType: "text",
-    connectTimeout: 15000,
-    readTimeout: 20000
-  };
-
-  const capacitorHttp = getCapacitorHttpPlugin();
-  if (capacitorHttp && typeof capacitorHttp.request === "function") {
-    return capacitorHttp.request(options);
+function getSiiApiUrl() {
+  if (window.AppHorarioHttp && typeof window.AppHorarioHttp.getApiUrl === "function") {
+    return window.AppHorarioHttp.getApiUrl() || DEFAULT_SII_LOGIN_URL;
   }
 
-  const response = await fetch(SII_LOGIN_URL, {
-    method: "POST",
-    headers: options.headers,
-    body
-  });
-
-  return {
-    status: response.status,
-    url: response.url,
-    data: await response.text()
-  };
+  return DEFAULT_SII_LOGIN_URL;
 }
 
 function isSiiLoginSuccessful(response) {
@@ -536,12 +530,248 @@ function isSiiLoginSuccessful(response) {
   return !looksLikeLogin && !looksRejected;
 }
 
-function getCapacitorHttpPlugin() {
-  if (window.Capacitor && window.Capacitor.Plugins) {
-    return window.Capacitor.Plugins.CapacitorHttp;
+function parseSiiSchedule(data) {
+  if (!data) return [];
+
+  if (typeof data !== "string") {
+    return normalizeSiiScheduleData(data);
   }
 
-  return window.CapacitorHttp || null;
+  const trimmed = data.trim();
+  if (!trimmed) return [];
+
+  try {
+    return normalizeSiiScheduleData(JSON.parse(trimmed));
+  } catch {
+    return parseSiiScheduleHtml(trimmed);
+  }
+}
+
+function normalizeSiiScheduleData(data) {
+  const rows = getScheduleRows(data);
+  return rows.map(normalizeSiiScheduleRow).filter(Boolean);
+}
+
+function getScheduleRows(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return [];
+
+  const candidates = [
+    data.horario,
+    data.schedule,
+    data.clases,
+    data.classes,
+    data.data,
+    data.result,
+    data.rows
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+    if (candidate && typeof candidate === "object") {
+      const nestedRows = getScheduleRows(candidate);
+      if (nestedRows.length) return nestedRows;
+    }
+  }
+
+  return [];
+}
+
+function normalizeSiiScheduleRow(row, index = 0) {
+  if (!row || typeof row !== "object") return null;
+
+  const name = pickFirst(row, ["materia", "asignatura", "nombre", "name", "clase", "subject"]);
+  const place = pickFirst(row, ["aula", "salon", "salón", "grupo", "lugar", "place", "room"]) || "";
+  const start = normalizeTime(pickFirst(row, ["inicio", "hora_inicio", "horaInicio", "start", "startTime", "entrada"]));
+  const end = normalizeTime(pickFirst(row, ["fin", "hora_fin", "horaFin", "end", "endTime", "salida"]));
+  const days = parseScheduleDays(pickFirst(row, ["dias", "días", "dia", "día", "days", "day", "weekday"]));
+
+  if (!name || !start || !end || !days.length) return null;
+
+  return {
+    id: createId(),
+    externalId: pickFirst(row, ["id", "clave", "materia_id", "classId"]) || `${slugify(name)}-${start}-${end}-${index}`,
+    source: SII_CLASS_SOURCE,
+    name: String(name).trim(),
+    place: String(place).trim(),
+    color: pickClassColor(index),
+    start,
+    end,
+    days,
+    notes: [],
+    recordings: []
+  };
+}
+
+function parseSiiScheduleHtml(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const tables = Array.from(doc.querySelectorAll("table"));
+  const rows = [];
+
+  tables.forEach((table) => {
+    const headers = Array.from(table.querySelectorAll("tr:first-child th, tr:first-child td"))
+      .map((cell) => normalizeHeader(cell.textContent));
+
+    Array.from(table.querySelectorAll("tr")).forEach((tr, rowIndex) => {
+      const cells = Array.from(tr.querySelectorAll("td, th")).map((cell) => cleanText(cell.textContent));
+      if (cells.length < 3 || rowIndex === 0) return;
+
+      const row = mapScheduleCells(headers, cells);
+      const normalized = normalizeSiiScheduleRow(row, rows.length);
+      if (normalized) rows.push(normalized);
+    });
+  });
+
+  return dedupeSiiClasses(rows);
+}
+
+function mapScheduleCells(headers, cells) {
+  const row = {};
+  headers.forEach((header, index) => {
+    if (header) row[header] = cells[index] || "";
+  });
+
+  if (!Object.keys(row).length) {
+    row.materia = cells[0] || "";
+    row.dias = cells.find((value) => parseScheduleDays(value).length) || "";
+    const times = cells.map(normalizeTime).filter(Boolean);
+    row.inicio = times[0] || "";
+    row.fin = times[1] || "";
+    row.aula = cells[cells.length - 1] || "";
+  }
+
+  return row;
+}
+
+function importSiiClasses(classes) {
+  const previousByExternalId = new Map(
+    state.classes
+      .filter((item) => item.source === SII_CLASS_SOURCE && item.externalId)
+      .map((item) => [item.externalId, item])
+  );
+
+  const imported = dedupeSiiClasses(classes).map((item, index) => {
+    const previous = previousByExternalId.get(item.externalId);
+    return {
+      ...item,
+      id: previous ? previous.id : item.id,
+      color: previous ? previous.color : pickClassColor(index),
+      notes: previous ? previous.notes || [] : [],
+      recordings: previous ? previous.recordings || [] : []
+    };
+  });
+
+  state.classes = [
+    ...state.classes.filter((item) => item.source !== SII_CLASS_SOURCE),
+    ...imported
+  ];
+
+  saveState();
+  render();
+  tick();
+  rescheduleNativeNotificationsSoon();
+}
+
+function dedupeSiiClasses(classes) {
+  const seen = new Set();
+  return classes.filter((item) => {
+    const key = `${item.name}|${item.start}|${item.end}|${item.days.join(",")}|${item.place}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function pickFirst(source, keys) {
+  for (const key of keys) {
+    if (source[key] !== undefined && source[key] !== null && String(source[key]).trim() !== "") {
+      return source[key];
+    }
+  }
+
+  const normalizedSource = Object.entries(source).reduce((values, [key, value]) => {
+    values[normalizeHeader(key)] = value;
+    return values;
+  }, {});
+
+  for (const key of keys) {
+    const normalizedKey = normalizeHeader(key);
+    if (normalizedSource[normalizedKey] !== undefined && normalizedSource[normalizedKey] !== null && String(normalizedSource[normalizedKey]).trim() !== "") {
+      return normalizedSource[normalizedKey];
+    }
+  }
+
+  return "";
+}
+
+function normalizeHeader(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function cleanText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeTime(value) {
+  const text = cleanText(value);
+  const match = text.match(/(\d{1,2}):?(\d{2})/);
+  if (!match) return "";
+
+  const hour = Math.min(23, Number(match[1]));
+  const minute = Math.min(59, Number(match[2]));
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function parseScheduleDays(value) {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.flatMap(parseScheduleDays))).sort((a, b) => a - b);
+  }
+
+  const text = cleanText(value).toLowerCase();
+  if (!text) return [];
+
+  const dayMap = [
+    ["domingo", "dom", "sunday", "sun"],
+    ["lunes", "lun", "monday", "mon", "l"],
+    ["martes", "mar", "tuesday", "tue", "m"],
+    ["miercoles", "miércoles", "mie", "mié", "wednesday", "wed", "x"],
+    ["jueves", "jue", "thursday", "thu", "j"],
+    ["viernes", "vie", "friday", "fri", "v"],
+    ["sabado", "sábado", "sab", "sáb", "saturday", "sat", "s"]
+  ];
+  const normalizedText = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const days = new Set();
+
+  dayMap.forEach((names, day) => {
+    if (names.some((name) => new RegExp(`(^|[^a-z])${name.normalize("NFD").replace(/[\u0300-\u036f]/g, "")}([^a-z]|$)`).test(normalizedText))) {
+      days.add(day);
+    }
+  });
+
+  if (/lunes\s*a\s*viernes|lun\s*a\s*vie|l-v|lv/.test(normalizedText)) {
+    [1, 2, 3, 4, 5].forEach((day) => days.add(day));
+  }
+
+  return Array.from(days).sort((a, b) => a - b);
+}
+
+function pickClassColor(index) {
+  const colors = ["#216869", "#c7503d", "#c7972b", "#3563a9", "#7a4f9f", "#0f766e", "#db2777", "#65a30d"];
+  return colors[index % colors.length];
+}
+
+function slugify(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function setSiiBusy(isBusy) {

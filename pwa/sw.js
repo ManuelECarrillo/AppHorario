@@ -1,9 +1,11 @@
-const CACHE_NAME = "apphorario-v23";
+const CACHE_NAME = "apphorario-v24";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
   "app.js",
+  "lib/http.js",
+  "env.js",
   "manifest.webmanifest",
   "assets/icon.svg",
   "assets/icon-192.png",

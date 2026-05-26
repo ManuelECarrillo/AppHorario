@@ -18,6 +18,8 @@ android-sdk/
 
 # Generated/share artifacts
 dist/
+pwa/env.js
+.env
 
 # Local IDE/system files
 .DS_Store

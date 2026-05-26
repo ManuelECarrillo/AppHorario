@@ -4,9 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "sync:android": "cap sync android",
+    "prepare:env": "node scripts/generate-env.js",
+    "sync:android": "npm run prepare:env && cap sync android",
     "open:android": "cap open android",
-    "build:android": "cd android && gradlew.bat assembleDebug"
+    "build:android": "npm run prepare:env && cd android && gradlew.bat assembleDebug"
   },
   "keywords": [],
   "author": "",
