@@ -245,6 +245,8 @@ function normalizeState(nextState) {
     classes: nextState.classes.map((item, index) => ({
       ...item,
       color: item.color || ["#216869", "#c7503d", "#c7972b", "#3563a9"][index % 4],
+      room: item.room || "",
+      teacher: item.teacher || "",
       notes: item.notes || [],
       recordings: item.recordings || []
     })),
@@ -822,10 +824,15 @@ function importSiiClasses(classes) {
 
   const imported = dedupeSiiClasses(classes).map((item, index) => {
     const previous = previousByExternalId.get(item.externalId);
+    const room = item.room || (previous && previous.room) || "";
+    const teacher = item.teacher || (previous && previous.teacher) || "";
     return {
       ...item,
       id: previous ? previous.id : item.id,
       color: previous ? previous.color : pickClassColor(index),
+      room,
+      teacher,
+      place: item.place || formatClassPlace({ room, teacher }),
       notes: previous ? previous.notes || [] : [],
       recordings: previous ? previous.recordings || [] : []
     };
@@ -920,14 +927,6 @@ function splitSiiClassNameAndTeacher(value, knownTeacher = "") {
     }
   }
 
-  if (!teacher) {
-    const guessed = splitTeacherSuffix(name);
-    if (guessed) {
-      name = guessed.name;
-      teacher = guessed.teacher;
-    }
-  }
-
   return {
     name: cleanText(name) || originalName,
     teacher
@@ -945,116 +944,6 @@ function stripLeadingSiiNoise(value) {
   }
 
   return removedNumericTokens ? tokens.slice(index).join(" ") : cleanText(value);
-}
-
-function splitTeacherSuffix(value) {
-  const tokens = cleanText(value).split(" ").filter(Boolean);
-  if (tokens.length < 6) return null;
-
-  const possibleLengths = [4, 3, 5];
-  for (const length of possibleLengths) {
-    if (tokens.length <= length + 1) continue;
-
-    const subjectTokens = tokens.slice(0, -length);
-    const teacherTokens = tokens.slice(-length);
-    const subject = subjectTokens.join(" ");
-    const teacher = cleanTeacherName(teacherTokens.join(" "));
-
-    if (!subject || !teacher) continue;
-    if (!looksLikeSubjectText(subject)) continue;
-    if (!looksLikeTeacherName(teacher)) continue;
-
-    return { name: subject, teacher };
-  }
-
-  return null;
-}
-
-function looksLikeSubjectText(value) {
-  const normalized = normalizeSearchText(value);
-  const subjectWords = [
-    "administracion",
-    "algebra",
-    "arquitectura",
-    "automatas",
-    "base",
-    "calculo",
-    "calidad",
-    "compiladores",
-    "contabilidad",
-    "datos",
-    "desarrollo",
-    "ecuaciones",
-    "estadistica",
-    "etica",
-    "fisica",
-    "fundamentos",
-    "gestion",
-    "graficacion",
-    "ingenieria",
-    "ingles",
-    "inteligencia",
-    "interfaces",
-    "investigacion",
-    "lenguajes",
-    "matematicas",
-    "metodos",
-    "moviles",
-    "operativos",
-    "probabilidad",
-    "programacion",
-    "proyectos",
-    "quimica",
-    "redes",
-    "simulacion",
-    "sistemas",
-    "software",
-    "taller",
-    "topicos",
-    "tutoria",
-    "web"
-  ];
-
-  return subjectWords.some((word) => new RegExp(`(^|\\s)${word}(\\s|$)`).test(normalized));
-}
-
-function looksLikeTeacherName(value) {
-  const tokens = cleanText(value).split(" ").filter(Boolean);
-  if (tokens.length < 3 || tokens.length > 5) return false;
-  if (tokens.some((token) => /\d/.test(token))) return false;
-
-  const normalized = normalizeSearchText(value);
-  const nonNameWords = [
-    "administracion",
-    "algebra",
-    "arquitectura",
-    "base",
-    "calculo",
-    "clase",
-    "datos",
-    "desarrollo",
-    "edificio",
-    "fundamentos",
-    "horario",
-    "ingenieria",
-    "laboratorio",
-    "programacion",
-    "salon",
-    "sistemas",
-    "software",
-    "taller"
-  ];
-
-  return !nonNameWords.some((word) => new RegExp(`(^|\\s)${word}(\\s|$)`).test(normalized));
-}
-
-function normalizeSearchText(value) {
-  return cleanText(value)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
 }
 
 function cleanTeacherName(value) {
@@ -2124,6 +2013,7 @@ function bindDynamicActions() {
 function resetClassForm() {
   $("#classForm").reset();
   $("#classId").value = "";
+  $("#classTeacher").value = "";
   setClassColor(DEFAULT_CLASS_COLOR);
   $("#classStart").value = "08:00";
   $("#classEnd").value = "09:00";
@@ -2141,13 +2031,14 @@ function saveClass(event) {
   }
 
   const existing = state.classes.find((item) => item.id === id);
-  const place = $("#classPlace").value.trim();
+  const room = $("#classPlace").value.trim();
+  const teacher = $("#classTeacher").value.trim();
   const nextClass = {
     id,
     name: $("#className").value.trim(),
-    place,
-    room: place,
-    teacher: existing && existing.teacher ? existing.teacher : "",
+    place: formatClassPlace({ room, teacher }),
+    room,
+    teacher,
     source: existing && existing.source ? existing.source : undefined,
     externalId: existing && existing.externalId ? existing.externalId : undefined,
     color: $("#classColor").value || DEFAULT_CLASS_COLOR,
@@ -2180,7 +2071,8 @@ function editClass(id) {
 function fillClassForm(item) {
   $("#classId").value = item.id;
   $("#className").value = item.name;
-  $("#classPlace").value = item.place || "";
+  $("#classPlace").value = getClassRoomText(item);
+  $("#classTeacher").value = getClassTeacherText(item);
   setClassColor(item.color || DEFAULT_CLASS_COLOR);
   $("#classStart").value = item.start;
   $("#classEnd").value = item.end;
@@ -2394,11 +2286,14 @@ function renderClassDetail(item) {
   const teacher = getClassTeacherText(item);
 
   elements.classDetailMeta.style.setProperty("--class-color", item.color || DEFAULT_CLASS_COLOR);
+  const detailLine = [
+    room ? `Aula: ${escapeHtml(room)}` : "Sin aula registrada",
+    teacher ? `Profesor: ${escapeHtml(teacher)}` : ""
+  ].filter(Boolean).join(" · ");
   elements.classDetailMeta.innerHTML = `
     <div>
       <strong>${item.start} - ${item.end}</strong>
-      <p class="muted">${room ? `Aula: ${escapeHtml(room)}` : "Sin aula registrada"}</p>
-      ${teacher ? `<p class="muted">Profesor: ${escapeHtml(teacher)}</p>` : ""}
+      <p class="muted">${detailLine}</p>
     </div>
     <div class="tag-row">${days}</div>
   `;
