@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AppHorario</string>
+    <string name="title_activity_main">AppHorario</string>
+    <string name="package_name">app.horario.estudio</string>
+    <string name="custom_url_scheme">app.horario.estudio</string>
+</resources>

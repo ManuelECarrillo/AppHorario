@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f7fb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="AppHorario">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>AppHorario</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="assets/icon-192.png">
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Mi estudio</p>
+          <h1 id="appTitle">AppHorario</h1>
+        </div>
+        <button class="icon-button" id="notifyButton" type="button" aria-label="Activar notificaciones" title="Activar notificaciones">
+          <i data-lucide="bell"></i>
+        </button>
+        <button class="icon-button" id="installButton" type="button" aria-label="Instalar app" title="Instalar app" hidden>
+          <i data-lucide="download"></i>
+        </button>
+      </header>
+
+      <main>
+        <section class="status-panel" aria-live="polite">
+          <div>
+            <p class="muted">Ahora</p>
+            <strong id="currentTime">--:--</strong>
+          </div>
+          <div>
+            <p class="muted" id="classStatusLabel">Siguiente clase</p>
+            <strong id="nextClassText">Sin clases próximas</strong>
+          </div>
+        </section>
+        <section class="smart-panel" id="smartPanel" hidden></section>
+
+        <nav class="tabs" aria-label="Vistas principales">
+          <button class="tab-button active" type="button" data-tab="today">
+            <i data-lucide="calendar-days"></i>
+            Hoy
+          </button>
+          <button class="tab-button" type="button" data-tab="week">
+            <i data-lucide="calendar-range"></i>
+            Semana
+          </button>
+          <button class="tab-button" type="button" data-tab="classes">
+            <i data-lucide="book-open"></i>
+            Clases
+          </button>
+          <button class="tab-button" type="button" data-tab="tasks">
+            <i data-lucide="check-square"></i>
+            Tareas
+          </button>
+          <button class="tab-button" type="button" data-tab="settings">
+            <i data-lucide="settings-2"></i>
+            Ajustes
+          </button>
+        </nav>
+
+        <section class="tab-panel active" id="todayPanel">
+          <div class="section-heading">
+            <h2>Horario de hoy</h2>
+            <button class="text-button" type="button" id="todayViewButton">
+              <i data-lucide="check-check"></i>
+              Pendientes
+            </button>
+          </div>
+          <div class="timeline" id="todaySchedule"></div>
+        </section>
+
+        <section class="tab-panel" id="weekPanel">
+          <div class="section-heading">
+            <h2 id="weekHeading">Semana completa</h2>
+            <button class="text-button" type="button" id="weekViewButton">
+              <i data-lucide="calendar-range"></i>
+              Desde hoy
+            </button>
+          </div>
+          <div class="week-grid" id="weekSchedule"></div>
+        </section>
+
+        <section class="tab-panel" id="classesPanel">
+          <div class="section-heading">
+            <h2>Clases</h2>
+            <button class="text-button" type="button" data-open-dialog="classDialog">
+              <i data-lucide="plus"></i>
+              Clase
+            </button>
+          </div>
+          <div class="class-grid" id="classList"></div>
+        </section>
+
+        <section class="tab-panel" id="tasksPanel">
+          <div class="section-heading">
+            <h2>Tareas y recordatorios</h2>
+            <div class="heading-actions">
+              <button class="text-button" type="button" data-open-dialog="examDialog">
+                <i data-lucide="graduation-cap"></i>
+                Examen
+              </button>
+              <button class="text-button" type="button" data-open-dialog="taskDialog">
+                <i data-lucide="plus"></i>
+                Tarea
+              </button>
+            </div>
+          </div>
+          <div class="exam-list" id="examList"></div>
+          <div class="task-list" id="taskList"></div>
+        </section>
+
+        <section class="tab-panel" id="settingsPanel">
+          <div class="settings-list">
+            <label class="field">
+              Título grande
+              <input id="appTitleInput" maxlength="32" placeholder="AppHorario">
+            </label>
+            <label class="field">
+              Modo
+              <select id="themeMode">
+                <option value="light">Claro</option>
+                <option value="dark">Oscuro</option>
+                <option value="auto">Automático</option>
+              </select>
+            </label>
+            <div class="color-settings">
+              <label class="field color-field">
+                Principal
+                <input id="primaryColor" type="color">
+              </label>
+              <label class="field color-field">
+                Acento
+                <input id="accentColor" type="color">
+              </label>
+              <label class="field color-field">
+                Fondo
+                <input id="backgroundColor" type="color">
+              </label>
+            </div>
+            <label class="field compact">
+              Minutos antes para preguntar tareas
+              <input id="taskPromptMinutes" type="number" min="1" max="120" step="1">
+            </label>
+            <label class="field compact">
+              Minutos antes de iniciar clase
+              <input id="classStartMinutes" type="number" min="1" max="120" step="1">
+            </label>
+            <label class="field">
+              Sonido de notificación
+              <select id="notificationSound">
+                <option value="chime">Campana suave</option>
+                <option value="focus">Pulso de estudio</option>
+                <option value="digital">Digital claro</option>
+                <option value="silent">Solo vibración</option>
+              </select>
+            </label>
+            <label class="toggle-row">
+              <span>Preguntar si hay tarea antes de clase</span>
+              <input id="taskPromptEnabled" type="checkbox">
+            </label>
+            <label class="toggle-row">
+              <span>Avisar antes de iniciar clase</span>
+              <input id="classStartEnabled" type="checkbox">
+            </label>
+            <div class="settings-actions">
+              <button class="text-button" type="button" id="testNotificationButton">
+                <i data-lucide="bell"></i>
+                Probar notificación
+              </button>
+              <button class="text-button" type="button" id="exportButton">
+                <i data-lucide="download"></i>
+                Exportar respaldo
+              </button>
+              <label class="text-button import-button">
+                <i data-lucide="upload"></i>
+                Importar respaldo
+                <input id="importFile" type="file" accept="application/json">
+              </label>
+            </div>
+            <p class="muted install-hint" id="installHint">Se puede instalar en el teléfono desde el navegador compatible.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="dialog" id="classDialog">
+      <form method="dialog" id="classForm">
+        <div class="dialog-heading">
+          <h2>Nueva clase</h2>
+          <button class="icon-button small" type="button" data-close-dialog="classDialog" aria-label="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <input type="hidden" id="classId">
+        <label class="field">
+          Nombre
+          <input id="className" required maxlength="40" placeholder="Matemáticas">
+        </label>
+        <label class="field">
+          Aula o detalle
+          <input id="classPlace" maxlength="50" placeholder="Salón 204">
+        </label>
+        <label class="field">
+          Color
+          <select id="classColor">
+            <option value="#216869">Verde estudio</option>
+            <option value="#c7503d">Rojo tarea</option>
+            <option value="#c7972b">Dorado</option>
+            <option value="#3563a9">Azul</option>
+            <option value="#7a4f9f">Morado</option>
+            <option value="#2f7d4f">Verde</option>
+            <option value="#0f766e">Turquesa</option>
+            <option value="#0891b2">Cian</option>
+            <option value="#2563eb">Azul fuerte</option>
+            <option value="#4f46e5">Índigo</option>
+            <option value="#9333ea">Violeta</option>
+            <option value="#db2777">Rosa</option>
+            <option value="#e11d48">Carmesí</option>
+            <option value="#ea580c">Naranja</option>
+            <option value="#65a30d">Lima</option>
+            <option value="#475569">Grafito</option>
+          </select>
+        </label>
+        <div class="field-row">
+          <label class="field">
+            Inicio
+            <input id="classStart" type="time" required>
+          </label>
+          <label class="field">
+            Fin
+            <input id="classEnd" type="time" required>
+          </label>
+        </div>
+        <fieldset class="day-picker">
+          <legend>Días</legend>
+          <label><input type="checkbox" name="classDay" value="1"> Lun</label>
+          <label><input type="checkbox" name="classDay" value="2"> Mar</label>
+          <label><input type="checkbox" name="classDay" value="3"> Mié</label>
+          <label><input type="checkbox" name="classDay" value="4"> Jue</label>
+          <label><input type="checkbox" name="classDay" value="5"> Vie</label>
+          <label><input type="checkbox" name="classDay" value="6"> Sáb</label>
+          <label><input type="checkbox" name="classDay" value="0"> Dom</label>
+        </fieldset>
+        <button class="primary-button" type="submit">Guardar clase</button>
+      </form>
+    </dialog>
+
+    <dialog class="dialog task-dialog" id="taskDialog">
+      <form method="dialog" id="taskForm" class="task-form">
+        <div class="dialog-heading">
+          <h2>Nueva tarea</h2>
+          <button class="icon-button small" type="button" data-close-dialog="taskDialog" aria-label="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <input type="hidden" id="taskId">
+        <section class="task-compose">
+          <label class="field task-title-field">
+            Tarea
+            <input id="taskTitle" required maxlength="70" placeholder="Ej. Resolver ejercicios 4 y 5">
+          </label>
+          <label class="field">
+            Nota
+            <textarea id="taskDetails" rows="3" maxlength="240" placeholder="Detalles rápidos"></textarea>
+          </label>
+        </section>
+        <section class="task-planning">
+          <label class="field task-class-field">
+            Clase
+            <select id="taskClass"></select>
+          </label>
+          <label class="field">
+            Fecha
+            <input id="taskDate" type="date" required>
+          </label>
+          <label class="field">
+            Hora
+            <input id="taskTime" type="time" required>
+          </label>
+        </section>
+        <details class="task-options">
+          <summary>Opciones</summary>
+          <div class="task-options-grid">
+            <label class="field">
+              Prioridad
+              <select id="taskPriority">
+                <option value="normal">Normal</option>
+                <option value="high">Urgente</option>
+                <option value="low">Baja</option>
+              </select>
+            </label>
+            <label class="field">
+              Repetir
+              <select id="taskRepeat">
+                <option value="none">Una vez</option>
+                <option value="daily">Diario</option>
+                <option value="weekly">Semanal</option>
+              </select>
+            </label>
+          </div>
+        </details>
+        <button class="primary-button" type="submit">Guardar tarea</button>
+      </form>
+    </dialog>
+
+    <dialog class="dialog" id="examDialog">
+      <form method="dialog" id="examForm">
+        <div class="dialog-heading">
+          <h2>Nuevo examen</h2>
+          <button class="icon-button small" type="button" data-close-dialog="examDialog" aria-label="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <input type="hidden" id="examId">
+        <label class="field">
+          Título
+          <input id="examTitle" required maxlength="70" placeholder="Examen parcial">
+        </label>
+        <label class="field">
+          Clase
+          <select id="examClass"></select>
+        </label>
+        <div class="field-row">
+          <label class="field">
+            Fecha
+            <input id="examDate" type="date" required>
+          </label>
+          <label class="field">
+            Hora
+            <input id="examTime" type="time" required>
+          </label>
+        </div>
+        <label class="field">
+          Hora para estudiar
+          <input id="examStudyTime" type="time" required>
+        </label>
+        <fieldset class="day-picker">
+          <legend>Recordatorios de estudio</legend>
+          <label><input type="checkbox" name="studyDay" value="7" checked> 7 días</label>
+          <label><input type="checkbox" name="studyDay" value="3" checked> 3 días</label>
+          <label><input type="checkbox" name="studyDay" value="1" checked> 1 día</label>
+          <label><input type="checkbox" name="studyDay" value="0"> Mismo día</label>
+        </fieldset>
+        <button class="primary-button" type="submit">Guardar examen</button>
+      </form>
+    </dialog>
+
+    <dialog class="dialog wide" id="notesDialog">
+      <form method="dialog" id="noteForm">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Clase</p>
+            <h2 id="notesTitle">Clase</h2>
+          </div>
+          <button class="icon-button small" type="button" data-close-dialog="notesDialog" aria-label="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div class="class-detail-meta" id="classDetailMeta"></div>
+        <div class="class-detail-actions">
+          <button class="text-button" type="button" id="detailAddTask">
+            <i data-lucide="plus"></i>
+            Tarea
+          </button>
+          <button class="text-button" type="button" id="detailAddExam">
+            <i data-lucide="graduation-cap"></i>
+            Examen
+          </button>
+          <button class="text-button" type="button" id="detailEditClass">
+            <i data-lucide="pencil"></i>
+            Editar clase
+          </button>
+        </div>
+        <section class="detail-section">
+          <h3>Exámenes de esta clase</h3>
+          <div class="detail-exam-list" id="classDetailExams"></div>
+        </section>
+        <section class="detail-section">
+          <h3>Tareas de esta clase</h3>
+          <div class="detail-task-list" id="classDetailTasks"></div>
+        </section>
+        <input type="hidden" id="noteClassId">
+        <label class="field">
+          Nota de hoy
+          <textarea id="noteText" rows="5" maxlength="1000" placeholder="Escribe lo importante de la clase..."></textarea>
+        </label>
+        <button class="primary-button" type="submit">Guardar nota con fecha de hoy</button>
+      </form>
+      <section class="detail-section inside-dialog audio-section">
+        <div class="section-heading compact-heading">
+          <h3>Audio de la clase</h3>
+          <div class="audio-actions">
+            <button class="text-button" type="button" id="recordAudioButton">
+              <i data-lucide="mic"></i>
+              Grabar
+            </button>
+            <button class="text-button danger" type="button" id="stopAudioButton" hidden>
+              <i data-lucide="square"></i>
+              Detener
+            </button>
+          </div>
+        </div>
+        <p class="muted" id="recordingStatus">Sin grabación activa.</p>
+        <div class="audio-history" id="audioHistory"></div>
+      </section>
+      <section class="detail-section inside-dialog">
+        <h3>Historial de notas</h3>
+      </section>
+      <div class="notes-history" id="notesHistory"></div>
+    </dialog>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "appId": "app.horario.estudio",
+  "appName": "AppHorario",
+  "webDir": "pwa",
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_apphorario",
+      "iconColor": "#216869"
+    }
+  }
+}
