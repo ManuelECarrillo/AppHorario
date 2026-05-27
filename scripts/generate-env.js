@@ -35,6 +35,21 @@ function readEnvFile(filePath) {
 }
 
 const env = readEnvFile(envPath);
+const existingPublicEnv = readExistingPublicEnv(outputPath);
+
+function readExistingPublicEnv(filePath) {
+  if (!fs.existsSync(filePath)) return {};
+
+  const content = fs.readFileSync(filePath, "utf8");
+  const match = content.match(/window\.APPHORARIO_ENV\s*=\s*(\{[\s\S]*?\})\s*;/);
+  if (!match) return {};
+
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return {};
+  }
+}
 
 function pickEnvValue(values, keys) {
   const entries = Object.entries(values);
@@ -53,12 +68,16 @@ function pickEnvValue(values, keys) {
   return "";
 }
 
+function pickPublicEnvValue(keys) {
+  return pickEnvValue(env, keys) || pickEnvValue(existingPublicEnv, keys);
+}
+
 function normalizeEnvKey(key) {
   return String(key || "").replace(/^\uFEFF/, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
 const publicEnv = {
-  API_URL: pickEnvValue(env, [
+  API_URL: pickPublicEnvValue([
     "API_URL",
     "api_url",
     "ApiUrl",
@@ -68,21 +87,21 @@ const publicEnv = {
     "HORARIO_API_URL",
     "SCHEDULE_API_URL"
   ]),
-  API_URL_ACCESO: pickEnvValue(env, [
+  API_URL_ACCESO: pickPublicEnvValue([
     "API_URL_ACCESO",
     "ACCESO_API_URL",
     "SII_API_URL_ACCESO",
     "SII_ACCESO_URL",
     "ACCESS_API_URL"
   ]),
-  API_URL_HORARIO: pickEnvValue(env, [
+  API_URL_HORARIO: pickPublicEnvValue([
     "API_URL_HORARIO",
     "HORARIO_API_URL",
     "SII_API_URL_HORARIO",
     "SII_HORARIO_URL",
     "SCHEDULE_API_URL"
   ]),
-  API_URL_CALIFICACIONES: pickEnvValue(env, [
+  API_URL_CALIFICACIONES: pickPublicEnvValue([
     "API_URL_CALIFICACIONES",
     "CALIFICACIONES_API_URL",
     "SII_API_URL_CALIFICACIONES",
