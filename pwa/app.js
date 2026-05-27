@@ -908,7 +908,8 @@ async function loadGrades(event) {
     }
 
     if (!grades.length) {
-      setGradesMessage("Conectó, pero no encontré calificaciones en la respuesta.", "error");
+      const summary = describeGradesResponse(response.data);
+      setGradesMessage(`Conectó, pero no encontré calificaciones en la respuesta. ${summary}`, "error");
       elements.gradesList.innerHTML = emptyState("Sin calificaciones detectadas.");
       return;
     }
@@ -943,7 +944,28 @@ function parseSiiGrades(data) {
 
 function normalizeGradesData(data) {
   const rows = getGradeRows(data);
-  return rows.map(normalizeGradeRow).filter(Boolean);
+  const normalizedRows = normalizeGradeRows(rows);
+  return normalizedRows.map(normalizeGradeRow).filter(Boolean);
+}
+
+function normalizeGradeRows(rows) {
+  if (!Array.isArray(rows) || !rows.length) return [];
+  if (!Array.isArray(rows[0])) return rows;
+
+  const headerIndex = rows.findIndex((row) => Array.isArray(row) && row.some((cell) => normalizeHeader(cell)));
+  const headers = headerIndex >= 0 ? rows[headerIndex].map(normalizeHeader) : [];
+
+  return rows
+    .filter((row, index) => Array.isArray(row) && index !== headerIndex)
+    .map((row) => {
+      const mapped = {};
+      headers.forEach((header, index) => {
+        if (header) mapped[header] = row[index] || "";
+      });
+
+      if (pickFirst(mapped, GRADE_SUBJECT_KEYS)) return mapped;
+      return mapGradeCells(row.map(cleanText));
+    });
 }
 
 function getGradeRows(data) {
@@ -953,12 +975,23 @@ function getGradeRows(data) {
   const candidateKeys = [
     "calificaciones",
     "calificacion",
+    "califs",
     "grades",
+    "grade",
     "parciales",
+    "evaluaciones",
+    "evaluacion",
+    "kardex",
+    "boleta",
     "materias",
     "subjects",
     "data",
+    "datos",
+    "payload",
+    "response",
+    "respuesta",
     "result",
+    "resultado",
     "rows",
     "items",
     "records"
@@ -985,24 +1018,16 @@ function getGradeRows(data) {
 function normalizeGradeRow(row) {
   if (!row || typeof row !== "object") return null;
 
-  const subject = cleanText(pickFirst(row, [
-    "materia",
-    "asignatura",
-    "nombre",
-    "nombre_materia",
-    "nombreMateria",
-    "materia_nombre",
-    "clase",
-    "subject"
-  ]));
+  const flatRow = flattenGradeRow(row);
+  const subject = cleanText(pickFirst(flatRow, GRADE_SUBJECT_KEYS)) || pickLikelySubject(flatRow);
   if (!subject) return null;
 
-  const teacher = cleanText(pickFirst(row, ["profesor", "docente", "maestro", "teacher"]));
-  const average = cleanText(pickFirst(row, ["promedio", "final", "calificacion_final", "calificacionFinal", "average"]));
-  const status = cleanText(pickFirst(row, ["estatus", "estado", "status", "observacion", "observación"]));
+  const teacher = cleanText(pickFirst(flatRow, ["profesor", "docente", "maestro", "teacher", "catedratico", "catedrático"]));
+  const average = cleanText(pickFirst(flatRow, ["promedio", "prom", "final", "calificacion_final", "calificacionFinal", "average"]));
+  const status = cleanText(pickFirst(flatRow, ["estatus", "estado", "status", "observacion", "observación", "resultado"]));
   const grades = [];
 
-  Object.entries(row).forEach(([key, value]) => {
+  Object.entries(flatRow).forEach(([key, value]) => {
     const label = getGradeLabel(key);
     const grade = cleanText(value);
     if (!label || !grade) return;
@@ -1018,6 +1043,79 @@ function normalizeGradeRow(row) {
   };
 }
 
+const GRADE_SUBJECT_KEYS = [
+  "materia",
+  "asignatura",
+  "nombre",
+  "nombre_materia",
+  "nombreMateria",
+  "materia_nombre",
+  "nom_materia",
+  "nombre_asignatura",
+  "asignatura_nombre",
+  "descripcion",
+  "descripcion_materia",
+  "materia_descripcion",
+  "clase",
+  "subject",
+  "modulo",
+  "curso"
+];
+
+function flattenGradeRow(row, prefix = "") {
+  return Object.entries(row).reduce((values, [key, value]) => {
+    const nextKey = prefix ? `${prefix}_${key}` : key;
+
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return { ...values, ...flattenGradeRow(value, nextKey) };
+    }
+
+    values[nextKey] = Array.isArray(value) ? value.join(" ") : value;
+    return values;
+  }, {});
+}
+
+function pickLikelySubject(row) {
+  const candidates = Object.entries(row)
+    .filter(([key, value]) => !getGradeLabel(key) && !isGradeMetaKey(key))
+    .map(([, value]) => cleanText(value))
+    .filter((value) => value.length >= 5 && !isGradeLikeValue(value) && !looksLikeOnlyCode(value))
+    .sort((a, b) => b.length - a.length);
+
+  return candidates[0] || "";
+}
+
+function isGradeMetaKey(key) {
+  const normalized = normalizeHeader(key);
+  return [
+    "profesor",
+    "docente",
+    "maestro",
+    "teacher",
+    "promedio",
+    "prom",
+    "final",
+    "estatus",
+    "estado",
+    "status",
+    "observacion",
+    "resultado",
+    "clave",
+    "id",
+    "grupo"
+  ].includes(normalized);
+}
+
+function isGradeLikeValue(value) {
+  const text = cleanText(value);
+  return /^(\d{1,3}(?:\.\d+)?|np|na|ac|nc|sd|aprobado|reprobado)$/i.test(text);
+}
+
+function looksLikeOnlyCode(value) {
+  const text = cleanText(value);
+  return /^[a-z0-9\-_.]+$/i.test(text) && /\d/.test(text) && text.length <= 14;
+}
+
 function getGradeLabel(key) {
   const normalized = normalizeHeader(key);
   const labels = {
@@ -1025,6 +1123,30 @@ function getGradeLabel(key) {
     p2: "P2",
     p3: "P3",
     p4: "P4",
+    p5: "P5",
+    p6: "P6",
+    calificacion: "Calif.",
+    calif: "Calif.",
+    calif1: "P1",
+    calif2: "P2",
+    calif3: "P3",
+    calif4: "P4",
+    cal1: "P1",
+    cal2: "P2",
+    cal3: "P3",
+    cal4: "P4",
+    c1: "P1",
+    c2: "P2",
+    c3: "P3",
+    c4: "P4",
+    eval1: "P1",
+    eval2: "P2",
+    eval3: "P3",
+    eval4: "P4",
+    evaluacion1: "P1",
+    evaluacion2: "P2",
+    evaluacion3: "P3",
+    evaluacion4: "P4",
     parcial1: "P1",
     parcial2: "P2",
     parcial3: "P3",
@@ -1054,6 +1176,9 @@ function getGradeLabel(key) {
     return normalized.includes("unidad") || normalized.startsWith("u") ? `U${partialMatch[1]}` : `P${partialMatch[1]}`;
   }
 
+  const gradeMatch = normalized.match(/(?:calif|calificacion|cal|c|eval|evaluacion)_?(\d+)/);
+  if (gradeMatch) return `P${gradeMatch[1]}`;
+
   return "";
 }
 
@@ -1076,11 +1201,8 @@ function parseGradesHtml(html) {
         if (header) row[header] = cells[index] || "";
       });
 
-      if (!Object.keys(row).length || !pickFirst(row, ["materia", "asignatura", "nombre", "subject"])) {
-        row.materia = cells[0] || "";
-        cells.slice(1).forEach((cell, index) => {
-          row[`parcial_${index + 1}`] = cell;
-        });
+      if (!Object.keys(row).length || !pickFirst(row, GRADE_SUBJECT_KEYS)) {
+        Object.assign(row, mapGradeCells(cells));
       }
 
       const normalized = normalizeGradeRow(row);
@@ -1089,6 +1211,59 @@ function parseGradesHtml(html) {
   });
 
   return rows;
+}
+
+function mapGradeCells(cells) {
+  const row = {};
+  const subjectIndex = cells.findIndex((cell) => cell.length >= 5 && !isGradeLikeValue(cell) && !looksLikeOnlyCode(cell));
+  row.materia = subjectIndex >= 0 ? cells[subjectIndex] : cells[0] || "";
+
+  cells.forEach((cell, index) => {
+    if (index === subjectIndex) return;
+    if (isGradeLikeValue(cell)) row[`parcial_${Object.keys(row).filter((key) => key.startsWith("parcial_")).length + 1}`] = cell;
+  });
+
+  return row;
+}
+
+function describeGradesResponse(data) {
+  if (!data) return "Respuesta vacía.";
+
+  if (typeof data !== "string") {
+    return describeGradeObject(data);
+  }
+
+  const trimmed = data.trim();
+  if (!trimmed) return "Respuesta vacía.";
+
+  try {
+    return describeGradeObject(JSON.parse(trimmed));
+  } catch {
+    const doc = new DOMParser().parseFromString(trimmed, "text/html");
+    const tables = Array.from(doc.querySelectorAll("table"));
+    const firstHeaders = tables[0]
+      ? Array.from(tables[0].querySelectorAll("tr:first-child th, tr:first-child td")).map((cell) => normalizeHeader(cell.textContent)).filter(Boolean).slice(0, 8)
+      : [];
+
+    return `Formato HTML, ${tables.length} tabla${tables.length === 1 ? "" : "s"} detectada${tables.length === 1 ? "" : "s"}${firstHeaders.length ? `, columnas: ${firstHeaders.join(", ")}` : ""}.`;
+  }
+}
+
+function describeGradeObject(data) {
+  if (Array.isArray(data)) {
+    const first = data.find(Boolean);
+    if (Array.isArray(first)) return `Formato JSON con filas tipo lista, ${data.length} fila${data.length === 1 ? "" : "s"}.`;
+    if (first && typeof first === "object") {
+      return `Formato JSON con ${data.length} fila${data.length === 1 ? "" : "s"}, claves: ${Object.keys(first).map(normalizeHeader).filter(Boolean).slice(0, 8).join(", ")}.`;
+    }
+    return `Formato JSON con lista de ${data.length} elemento${data.length === 1 ? "" : "s"}.`;
+  }
+
+  if (data && typeof data === "object") {
+    return `Formato JSON, claves: ${Object.keys(data).map(normalizeHeader).filter(Boolean).slice(0, 10).join(", ")}.`;
+  }
+
+  return `Formato ${typeof data}.`;
 }
 
 function renderGrades(grades) {
