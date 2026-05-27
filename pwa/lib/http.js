@@ -111,11 +111,33 @@
     });
   }
 
+  async function postFormThenLoadWithWebView(loginUrl, targetUrl, data, options = {}) {
+    if (!loginUrl || !targetUrl) {
+      throw Object.assign(new Error("Missing request URL."), { code: "missing_url" });
+    }
+
+    const appHorarioHttp = getAppHorarioHttpPlugin();
+    if (!appHorarioHttp || typeof appHorarioHttp.postFormThenLoadWithWebView !== "function") {
+      return postForm(targetUrl, data, options);
+    }
+
+    const body = new URLSearchParams(data).toString();
+    return appHorarioHttp.postFormThenLoadWithWebView({
+      loginUrl,
+      targetUrl,
+      body,
+      readTimeout: options.readTimeout || 60000,
+      loginDelay: options.loginDelay || 3500,
+      settleDelay: options.settleDelay || 4500
+    });
+  }
+
   window.AppHorarioHttp = {
     getApiUrl,
     getEnvValue,
     isNativeHttpAvailable,
     postForm,
-    postFormWithWebView
+    postFormWithWebView,
+    postFormThenLoadWithWebView
   };
 })();

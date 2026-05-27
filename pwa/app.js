@@ -518,6 +518,7 @@ async function postSiiGrades(control, password) {
 
   const variants = getSiiGradeRequestVariants();
   let fallbackResponse = null;
+  let needsBrowserSession = false;
 
   for (const variant of variants) {
     const response = await postSiiForm(url, control, password, variant);
@@ -529,13 +530,18 @@ async function postSiiGrades(control, password) {
     }
 
     if (shouldLoadSiiResponseWithWebView(response)) {
-      const webViewResponse = await postSiiFormWithWebView(url, control, password, variant);
-      const webViewGrades = parseSiiGrades(webViewResponse.data);
-      if (webViewGrades.length) return webViewResponse;
+      needsBrowserSession = true;
+      break;
+    }
+  }
 
-      if (!fallbackResponse || getResponseSize(webViewResponse) > getResponseSize(fallbackResponse)) {
-        fallbackResponse = webViewResponse;
-      }
+  if (needsBrowserSession || canLoadSiiGradesWithBrowserSession()) {
+    const sessionResponse = await postSiiGradesWithWebViewSession(control, password);
+    const sessionGrades = parseSiiGrades(sessionResponse.data);
+    if (sessionGrades.length) return sessionResponse;
+
+    if (!fallbackResponse || getResponseSize(sessionResponse) > getResponseSize(fallbackResponse)) {
+      fallbackResponse = sessionResponse;
     }
   }
 
@@ -613,6 +619,26 @@ async function postSiiFormWithWebView(url, control, password, extraData = { tipo
   });
 }
 
+async function postSiiGradesWithWebViewSession(control, password) {
+  if (!window.AppHorarioHttp || typeof window.AppHorarioHttp.postFormThenLoadWithWebView !== "function") {
+    throw Object.assign(new Error("Missing WebView HTTP client."), { code: "missing_webview_http_client" });
+  }
+
+  const loginUrl = getSiiApiUrl("access") || DEFAULT_SII_LOGIN_URL;
+  const gradesUrl = getSiiApiUrl("grades");
+  const payload = removeEmptyFormValues({
+    tipo: "a",
+    usuario: control,
+    contrasena: password
+  });
+
+  return window.AppHorarioHttp.postFormThenLoadWithWebView(loginUrl, gradesUrl, payload, {
+    readTimeout: 65000,
+    loginDelay: 4500,
+    settleDelay: 5500
+  });
+}
+
 function shouldLoadSiiResponseWithWebView(response) {
   if (!response || typeof response.data !== "string") return false;
   if (!window.AppHorarioHttp || typeof window.AppHorarioHttp.postFormWithWebView !== "function") return false;
@@ -628,6 +654,10 @@ function shouldLoadSiiResponseWithWebView(response) {
     || text.includes("habilitelo")
     || text.includes("habilite javascript")
     || text.includes("no tiene javascript");
+}
+
+function canLoadSiiGradesWithBrowserSession() {
+  return Boolean(window.AppHorarioHttp && typeof window.AppHorarioHttp.postFormThenLoadWithWebView === "function");
 }
 
 function normalizeTextForSearch(value) {

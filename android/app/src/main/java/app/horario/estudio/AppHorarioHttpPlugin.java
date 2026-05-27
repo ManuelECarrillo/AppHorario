@@ -26,6 +26,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -200,6 +201,135 @@ public class AppHorarioHttpPlugin extends Plugin {
 
             webView.postUrl(requestUrl, requestBody.getBytes(StandardCharsets.UTF_8));
         });
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    @PluginMethod
+    public void postFormThenLoadWithWebView(final PluginCall call) {
+        String loginUrl = call.getString("loginUrl", "");
+        String targetUrl = call.getString("targetUrl", "");
+        String body = call.getString("body", "");
+        Integer readTimeout = call.getInt("readTimeout", 60000);
+        Integer loginDelay = call.getInt("loginDelay", 3500);
+        Integer settleDelay = call.getInt("settleDelay", 4500);
+
+        if (loginUrl == null || loginUrl.trim().isEmpty() || targetUrl == null || targetUrl.trim().isEmpty()) {
+            call.reject("Missing request URL", "MissingUrl");
+            return;
+        }
+
+        if (getActivity() == null) {
+            call.reject("Missing Android activity", "MissingActivity");
+            return;
+        }
+
+        final String requestLoginUrl = loginUrl.trim();
+        final String requestTargetUrl = targetUrl.trim();
+        final String requestBody = body == null ? "" : body;
+        final int timeoutMs = readTimeout == null ? 60000 : readTimeout;
+        final int loginDelayMs = loginDelay == null ? 3500 : loginDelay;
+        final int settleDelayMs = settleDelay == null ? 4500 : settleDelay;
+
+        getActivity().runOnUiThread(() -> {
+            final WebView webView = new WebView(getActivity());
+            final Handler handler = new Handler(Looper.getMainLooper());
+            final boolean[] completed = { false };
+            final int[] phase = { 0 };
+
+            Runnable cleanup = () -> {
+                try {
+                    ViewGroup parent = (ViewGroup) webView.getParent();
+                    if (parent != null) {
+                        parent.removeView(webView);
+                    }
+                    webView.stopLoading();
+                    webView.loadUrl("about:blank");
+                    webView.destroy();
+                } catch (Exception ignored) {
+                }
+            };
+
+            Runnable timeout = () -> {
+                if (completed[0]) return;
+                completed[0] = true;
+                cleanup.run();
+                call.reject("The WebView request took too long.", "WebViewTimeout");
+            };
+
+            handler.postDelayed(timeout, Math.max(timeoutMs, 15000));
+            configureHiddenWebView(webView);
+
+            webView.setWebViewClient(new WebViewClient() {
+                @Override
+                public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                    handler.proceed();
+                }
+
+                @Override
+                public void onPageFinished(WebView view, String finishedUrl) {
+                    if (completed[0]) return;
+
+                    if (phase[0] == 0) {
+                        phase[0] = 1;
+                        handler.postDelayed(() -> {
+                            if (completed[0]) return;
+
+                            Map<String, String> headers = new HashMap<>();
+                            headers.put("Referer", view.getUrl() == null ? requestLoginUrl : view.getUrl());
+                            view.loadUrl(requestTargetUrl, headers);
+                        }, Math.max(loginDelayMs, 500));
+                        return;
+                    }
+
+                    handler.postDelayed(() -> {
+                        if (completed[0]) return;
+
+                        view.evaluateJavascript(
+                            "(function(){return document.documentElement ? document.documentElement.outerHTML : document.body.innerHTML;})()",
+                            value -> {
+                                if (completed[0]) return;
+                                completed[0] = true;
+                                handler.removeCallbacks(timeout);
+
+                                JSObject response = new JSObject();
+                                response.put("status", 200);
+                                response.put("url", view.getUrl() == null ? requestTargetUrl : view.getUrl());
+                                response.put("data", decodeJavaScriptString(value));
+                                response.put("headers", new JSObject());
+
+                                cleanup.run();
+                                call.resolve(response);
+                            }
+                        );
+                    }, Math.max(settleDelayMs, 500));
+                }
+            });
+
+            webView.postUrl(requestLoginUrl, requestBody.getBytes(StandardCharsets.UTF_8));
+        });
+    }
+
+    private void configureHiddenWebView(WebView webView) {
+        webView.setAlpha(0f);
+        webView.setVisibility(View.VISIBLE);
+        getActivity().addContentView(webView, new ViewGroup.LayoutParams(1, 1));
+
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(webView, true);
+        }
+
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+        settings.setLoadsImagesAutomatically(false);
+        settings.setBlockNetworkImage(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
     }
 
     private HttpURLConnection openConnection(String url) throws Exception {
