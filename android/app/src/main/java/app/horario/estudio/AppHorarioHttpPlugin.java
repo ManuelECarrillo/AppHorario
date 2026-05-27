@@ -1,5 +1,17 @@
 package app.horario.estudio;
 
+import android.annotation.SuppressLint;
+import android.net.http.SslError;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.CookieManager;
+import android.webkit.SslErrorHandler;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -25,6 +37,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSession;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
+import org.json.JSONArray;
 
 @CapacitorPlugin(name = "AppHorarioHttp")
 public class AppHorarioHttpPlugin extends Plugin {
@@ -80,6 +93,112 @@ public class AppHorarioHttpPlugin extends Plugin {
                     connection.disconnect();
                 }
             }
+        });
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    @PluginMethod
+    public void postFormWithWebView(final PluginCall call) {
+        String url = call.getString("url", "");
+        String body = call.getString("body", "");
+        Integer readTimeout = call.getInt("readTimeout", 45000);
+        Integer settleDelay = call.getInt("settleDelay", 2500);
+
+        if (url == null || url.trim().isEmpty()) {
+            call.reject("Missing request URL", "MissingUrl");
+            return;
+        }
+
+        if (getActivity() == null) {
+            call.reject("Missing Android activity", "MissingActivity");
+            return;
+        }
+
+        final String requestUrl = url.trim();
+        final String requestBody = body == null ? "" : body;
+        final int timeoutMs = readTimeout == null ? 45000 : readTimeout;
+        final int delayMs = settleDelay == null ? 2500 : settleDelay;
+
+        getActivity().runOnUiThread(() -> {
+            final WebView webView = new WebView(getActivity());
+            final Handler handler = new Handler(Looper.getMainLooper());
+            final boolean[] completed = { false };
+
+            Runnable cleanup = () -> {
+                try {
+                    ViewGroup parent = (ViewGroup) webView.getParent();
+                    if (parent != null) {
+                        parent.removeView(webView);
+                    }
+                    webView.stopLoading();
+                    webView.loadUrl("about:blank");
+                    webView.destroy();
+                } catch (Exception ignored) {
+                }
+            };
+
+            Runnable timeout = () -> {
+                if (completed[0]) return;
+                completed[0] = true;
+                cleanup.run();
+                call.reject("The WebView request took too long.", "WebViewTimeout");
+            };
+
+            handler.postDelayed(timeout, Math.max(timeoutMs, 10000));
+
+            webView.setAlpha(0f);
+            webView.setVisibility(View.VISIBLE);
+            getActivity().addContentView(webView, new ViewGroup.LayoutParams(1, 1));
+
+            CookieManager cookieManager = CookieManager.getInstance();
+            cookieManager.setAcceptCookie(true);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                cookieManager.setAcceptThirdPartyCookies(webView, true);
+            }
+
+            WebSettings settings = webView.getSettings();
+            settings.setJavaScriptEnabled(true);
+            settings.setDomStorageEnabled(true);
+            settings.setDatabaseEnabled(true);
+            settings.setLoadsImagesAutomatically(false);
+            settings.setBlockNetworkImage(true);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            }
+
+            webView.setWebViewClient(new WebViewClient() {
+                @Override
+                public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                    handler.proceed();
+                }
+
+                @Override
+                public void onPageFinished(WebView view, String finishedUrl) {
+                    handler.postDelayed(() -> {
+                        if (completed[0]) return;
+
+                        view.evaluateJavascript(
+                            "(function(){return document.documentElement ? document.documentElement.outerHTML : document.body.innerHTML;})()",
+                            value -> {
+                                if (completed[0]) return;
+                                completed[0] = true;
+                                handler.removeCallbacks(timeout);
+
+                                JSObject response = new JSObject();
+                                response.put("status", 200);
+                                response.put("url", view.getUrl() == null ? requestUrl : view.getUrl());
+                                response.put("data", decodeJavaScriptString(value));
+                                response.put("headers", new JSObject());
+
+                                cleanup.run();
+                                call.resolve(response);
+                            }
+                        );
+                    }, Math.max(delayMs, 500));
+                }
+            });
+
+            webView.postUrl(requestUrl, requestBody.getBytes(StandardCharsets.UTF_8));
         });
     }
 
@@ -161,5 +280,15 @@ public class AppHorarioHttpPlugin extends Plugin {
         }
 
         return headers;
+    }
+
+    private String decodeJavaScriptString(String value) {
+        if (value == null || "null".equals(value)) return "";
+
+        try {
+            return new JSONArray("[" + value + "]").getString(0);
+        } catch (Exception ignored) {
+            return value;
+        }
     }
 }

@@ -92,10 +92,30 @@
     };
   }
 
+  async function postFormWithWebView(url, data, options = {}) {
+    if (!url) {
+      throw Object.assign(new Error("Missing request URL."), { code: "missing_url" });
+    }
+
+    const appHorarioHttp = getAppHorarioHttpPlugin();
+    if (!appHorarioHttp || typeof appHorarioHttp.postFormWithWebView !== "function") {
+      return postForm(url, data, options);
+    }
+
+    const body = new URLSearchParams(data).toString();
+    return appHorarioHttp.postFormWithWebView({
+      url,
+      body,
+      readTimeout: options.readTimeout || 45000,
+      settleDelay: options.settleDelay || 2500
+    });
+  }
+
   window.AppHorarioHttp = {
     getApiUrl,
     getEnvValue,
     isNativeHttpAvailable,
-    postForm
+    postForm,
+    postFormWithWebView
   };
 })();

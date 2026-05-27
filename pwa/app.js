@@ -527,6 +527,16 @@ async function postSiiGrades(control, password) {
     if (!fallbackResponse || getResponseSize(response) > getResponseSize(fallbackResponse)) {
       fallbackResponse = response;
     }
+
+    if (shouldLoadSiiResponseWithWebView(response)) {
+      const webViewResponse = await postSiiFormWithWebView(url, control, password, variant);
+      const webViewGrades = parseSiiGrades(webViewResponse.data);
+      if (webViewGrades.length) return webViewResponse;
+
+      if (!fallbackResponse || getResponseSize(webViewResponse) > getResponseSize(fallbackResponse)) {
+        fallbackResponse = webViewResponse;
+      }
+    }
   }
 
   return fallbackResponse;
@@ -583,6 +593,48 @@ async function postSiiForm(url, control, password, extraData = { tipo: "a" }) {
   });
 
   return response;
+}
+
+async function postSiiFormWithWebView(url, control, password, extraData = { tipo: "a" }) {
+  if (!window.AppHorarioHttp || typeof window.AppHorarioHttp.postFormWithWebView !== "function") {
+    throw Object.assign(new Error("Missing WebView HTTP client."), { code: "missing_webview_http_client" });
+  }
+
+  const payload = removeEmptyFormValues({
+    tipo: "a",
+    ...extraData,
+    usuario: control,
+    contrasena: password
+  });
+
+  return window.AppHorarioHttp.postFormWithWebView(url, payload, {
+    readTimeout: 50000,
+    settleDelay: 3500
+  });
+}
+
+function shouldLoadSiiResponseWithWebView(response) {
+  if (!response || typeof response.data !== "string") return false;
+  if (!window.AppHorarioHttp || typeof window.AppHorarioHttp.postFormWithWebView !== "function") return false;
+
+  const text = normalizeTextForSearch(
+    response.data
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+  );
+
+  return text.includes("javascript")
+    || text.includes("habilitelo")
+    || text.includes("habilite javascript")
+    || text.includes("no tiene javascript");
+}
+
+function normalizeTextForSearch(value) {
+  return cleanText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 function removeEmptyFormValues(values) {
