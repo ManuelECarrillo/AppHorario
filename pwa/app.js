@@ -1186,6 +1186,9 @@ function parseGradesHtml(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const rows = [];
 
+  const embeddedGrades = parseEmbeddedGradesFromHtml(doc);
+  if (embeddedGrades.length) return embeddedGrades;
+
   Array.from(doc.querySelectorAll("table")).forEach((table) => {
     const headerRow = Array.from(table.querySelectorAll("tr")).find((tr) => tr.querySelectorAll("th,td").length >= 2);
     const headers = headerRow
@@ -1210,7 +1213,8 @@ function parseGradesHtml(html) {
     });
   });
 
-  return rows;
+  if (rows.length) return rows;
+  return parseLooseGradesText(getHtmlTextLines(doc));
 }
 
 function mapGradeCells(cells) {
@@ -1224,6 +1228,187 @@ function mapGradeCells(cells) {
   });
 
   return row;
+}
+
+function parseEmbeddedGradesFromHtml(doc) {
+  const textCandidates = Array.from(doc.querySelectorAll("script, pre, code"))
+    .map((node) => node.textContent || "")
+    .concat([doc.body ? doc.body.textContent || "" : ""]);
+
+  for (const text of textCandidates) {
+    const parsed = parseFirstJsonGradeCandidate(text);
+    if (parsed.length) return parsed;
+  }
+
+  return [];
+}
+
+function parseFirstJsonGradeCandidate(text) {
+  const source = cleanText(text);
+  if (!source || !/(calif|materia|asignatura|parcial|unidad)/i.test(source)) return [];
+
+  const candidates = [];
+  const objectMatches = source.match(/\{[\s\S]*\}/g) || [];
+  const arrayMatches = source.match(/\[[\s\S]*\]/g) || [];
+  candidates.push(...arrayMatches, ...objectMatches);
+
+  for (const candidate of candidates) {
+    try {
+      const grades = normalizeGradesData(JSON.parse(candidate));
+      if (grades.length) return grades;
+    } catch {
+      // Keep looking for another embedded JSON candidate.
+    }
+  }
+
+  return [];
+}
+
+function getHtmlTextLines(doc) {
+  const blockSelector = "li, p, div, section, article, tr, label, span";
+  const blocks = Array.from(doc.querySelectorAll(blockSelector))
+    .map((node) => cleanText(node.textContent))
+    .filter(Boolean);
+
+  const bodyText = doc.body ? doc.body.textContent || "" : "";
+  const bodyLines = bodyText
+    .replace(/\r/g, "\n")
+    .split(/\n+/)
+    .map(cleanText)
+    .filter(Boolean);
+
+  return Array.from(new Set([...blocks, ...bodyLines]))
+    .filter((line) => line.length >= 2);
+}
+
+function parseLooseGradesText(lines) {
+  const rows = [];
+  let current = null;
+
+  lines.forEach((line) => {
+    const row = parseLooseGradeLine(line);
+    if (row) {
+      const normalized = normalizeGradeRow(row);
+      if (normalized && hasVisibleGrade(normalized)) rows.push(normalized);
+      current = row;
+      return;
+    }
+
+    if (!current) {
+      const subject = extractSubjectFromLine(line);
+      if (subject) current = { materia: subject };
+      return;
+    }
+
+    const gradeParts = extractGradesFromText(line);
+    if (gradeParts.length) {
+      gradeParts.forEach((grade, index) => {
+        current[`parcial_${index + 1}`] = grade.value;
+      });
+
+      const normalized = normalizeGradeRow(current);
+      if (normalized && hasVisibleGrade(normalized)) rows.push(normalized);
+      current = null;
+      return;
+    }
+
+    const average = extractAverageFromText(line);
+    if (average) {
+      current.promedio = average;
+      const normalized = normalizeGradeRow(current);
+      if (normalized && hasVisibleGrade(normalized)) rows.push(normalized);
+      current = null;
+    }
+  });
+
+  return dedupeGradeRows(rows);
+}
+
+function parseLooseGradeLine(line) {
+  const subject = extractSubjectFromLine(line);
+  const grades = extractGradesFromText(line);
+  const average = extractAverageFromText(line);
+
+  if (!subject || (!grades.length && !average)) return null;
+
+  const row = { materia: subject };
+  grades.forEach((grade, index) => {
+    row[grade.key || `parcial_${index + 1}`] = grade.value;
+  });
+  if (average) row.promedio = average;
+
+  return row;
+}
+
+function extractSubjectFromLine(line) {
+  const text = cleanText(line);
+  if (!text || isLikelyNonGradeText(text)) return "";
+
+  const labeled = text.match(/(?:materia|asignatura|clase|curso|modulo|m[oó]dulo)\s*:?\s*(.+?)(?=\s+(?:parcial|unidad|calif|calificaci[oó]n|eval|evaluaci[oó]n|promedio|prom|final|u\d|p\d|c\d)\b|$)/i);
+  if (labeled) return cleanLooseSubject(labeled[1]);
+
+  const tokens = text.split(/\s+/);
+  const firstGradeIndex = tokens.findIndex(isGradeLikeValue);
+  if (firstGradeIndex > 0) {
+    return cleanLooseSubject(tokens.slice(0, firstGradeIndex).join(" "));
+  }
+
+  return "";
+}
+
+function extractGradesFromText(line) {
+  const grades = [];
+  const text = cleanText(line);
+  const labeledPattern = /(?:parcial|unidad|calif(?:icaci[oó]n)?|eval(?:uaci[oó]n)?|p|u|c)\s*\.?\s*(\d{0,2})\s*:?\s*(\d{1,3}(?:\.\d+)?|np|na|ac|nc|sd)/gi;
+  let match;
+
+  while ((match = labeledPattern.exec(text))) {
+    const number = match[1] || String(grades.length + 1);
+    grades.push({ key: `parcial_${number}`, value: match[2] });
+  }
+
+  if (grades.length) return grades;
+
+  const numberMatches = text.match(/\b(?:\d{1,3}(?:\.\d+)?|np|na|ac|nc|sd)\b/gi) || [];
+  return numberMatches
+    .filter((value) => isGradeLikeValue(value))
+    .map((value, index) => ({ key: `parcial_${index + 1}`, value }));
+}
+
+function extractAverageFromText(line) {
+  const match = cleanText(line).match(/(?:promedio|prom|final)\s*:?\s*(\d{1,3}(?:\.\d+)?|np|na|ac|nc|sd)/i);
+  return match ? match[1] : "";
+}
+
+function cleanLooseSubject(value) {
+  const subject = cleanText(value)
+    .replace(/\b(?:parcial|unidad|calif(?:icaci[oó]n)?|eval(?:uaci[oó]n)?|promedio|prom|final)\b.*$/i, "")
+    .replace(/\b(?:\d{1,3}(?:\.\d+)?|np|na|ac|nc|sd)\b.*$/i, "")
+    .replace(/[·|,;:/\-–—]+$/g, "")
+    .trim();
+
+  return subject.length >= 4 && !looksLikeOnlyCode(subject) ? splitSiiClassNameAndTeacher(subject).name : "";
+}
+
+function isLikelyNonGradeText(text) {
+  const normalized = normalizeHeader(text).replace(/_/g, " ");
+  return /^(iniciar sesion|acceso|usuario|contrasena|password|nip|numero de control|entrar|consultar|sistema)$/i.test(normalized)
+    || normalized.includes("no de control")
+    || normalized.includes("introduce los datos");
+}
+
+function hasVisibleGrade(item) {
+  return Boolean((item.grades && item.grades.length) || item.average);
+}
+
+function dedupeGradeRows(rows) {
+  const seen = new Set();
+  return rows.filter((item) => {
+    const key = `${item.subject}|${item.grades.map((grade) => `${grade.label}:${grade.value}`).join("|")}|${item.average}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function describeGradesResponse(data) {
@@ -1244,8 +1429,10 @@ function describeGradesResponse(data) {
     const firstHeaders = tables[0]
       ? Array.from(tables[0].querySelectorAll("tr:first-child th, tr:first-child td")).map((cell) => normalizeHeader(cell.textContent)).filter(Boolean).slice(0, 8)
       : [];
+    const lines = getHtmlTextLines(doc);
+    const gradeLikeLines = lines.filter((line) => /\b(?:\d{1,3}(?:\.\d+)?|np|na|ac|nc|sd)\b/i.test(line)).length;
 
-    return `Formato HTML, ${tables.length} tabla${tables.length === 1 ? "" : "s"} detectada${tables.length === 1 ? "" : "s"}${firstHeaders.length ? `, columnas: ${firstHeaders.join(", ")}` : ""}.`;
+    return `Formato HTML, ${tables.length} tabla${tables.length === 1 ? "" : "s"} detectada${tables.length === 1 ? "" : "s"}, ${lines.length} bloque${lines.length === 1 ? "" : "s"} de texto, ${gradeLikeLines} con números${firstHeaders.length ? `, columnas: ${firstHeaders.join(", ")}` : ""}.`;
   }
 }
 
