@@ -10,6 +10,7 @@ import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebSettings;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import com.getcapacitor.JSObject;
@@ -23,6 +24,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
@@ -226,6 +228,7 @@ public class AppHorarioHttpPlugin extends Plugin {
         final String requestLoginUrl = loginUrl.trim();
         final String requestTargetUrl = targetUrl.trim();
         final String requestBody = body == null ? "" : body;
+        final Map<String, String> formData = parseFormBody(requestBody);
         final int timeoutMs = readTimeout == null ? 60000 : readTimeout;
         final int loginDelayMs = loginDelay == null ? 3500 : loginDelay;
         final int settleDelayMs = settleDelay == null ? 4500 : settleDelay;
@@ -261,6 +264,17 @@ public class AppHorarioHttpPlugin extends Plugin {
 
             webView.setWebViewClient(new WebViewClient() {
                 @Override
+                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                    if (request == null || request.getUrl() == null) return false;
+                    return shouldBlockSiiFallbackRedirect(phase[0], request.getUrl().toString(), requestTargetUrl);
+                }
+
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                    return shouldBlockSiiFallbackRedirect(phase[0], url, requestTargetUrl);
+                }
+
+                @Override
                 public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                     handler.proceed();
                 }
@@ -271,6 +285,12 @@ public class AppHorarioHttpPlugin extends Plugin {
 
                     if (phase[0] == 0) {
                         phase[0] = 1;
+                        submitSiiLoginForm(view, formData);
+                        return;
+                    }
+
+                    if (phase[0] == 1) {
+                        phase[0] = 2;
                         handler.postDelayed(() -> {
                             if (completed[0]) return;
 
@@ -305,7 +325,7 @@ public class AppHorarioHttpPlugin extends Plugin {
                 }
             });
 
-            webView.postUrl(requestLoginUrl, requestBody.getBytes(StandardCharsets.UTF_8));
+            webView.loadUrl(requestLoginUrl);
         });
     }
 
@@ -330,6 +350,76 @@ public class AppHorarioHttpPlugin extends Plugin {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
+    }
+
+    private void submitSiiLoginForm(WebView webView, Map<String, String> formData) {
+        String type = formData.containsKey("tipo") ? formData.get("tipo") : "a";
+        String user = formData.containsKey("usuario") ? formData.get("usuario") : "";
+        String password = formData.containsKey("contrasena") ? formData.get("contrasena") : "";
+        String script =
+            "(function(){" +
+            "var form=document.forms.acceso||document.querySelector('form[name=\"acceso\"]')||document.querySelector('form');" +
+            "if(!form){return 'missing-form';}" +
+            "if(window.mostrar){try{window.mostrar(" + jsString(type) + ");}catch(e){}}" +
+            "var tipo=form.elements.tipo||document.querySelector('[name=\"tipo\"]');" +
+            "var usuario=form.elements.usuario||document.querySelector('[name=\"usuario\"]');" +
+            "var contrasena=form.elements.contrasena||document.querySelector('[name=\"contrasena\"]');" +
+            "if(tipo){tipo.value=" + jsString(type) + ";}" +
+            "if(usuario){usuario.value=" + jsString(user) + ";}" +
+            "if(contrasena){contrasena.value=" + jsString(password) + ";}" +
+            "form.submit();" +
+            "return 'submitted';" +
+            "})()";
+
+        webView.evaluateJavascript(script, ignored -> {});
+    }
+
+    private boolean shouldBlockSiiFallbackRedirect(int phase, String nextUrl, String targetUrl) {
+        if (phase < 2 || nextUrl == null || targetUrl == null) return false;
+
+        try {
+            URL next = new URL(nextUrl);
+            URL target = new URL(targetUrl);
+            String path = next.getPath() == null ? "" : next.getPath().replaceAll("/+$", "");
+
+            return next.getHost().equalsIgnoreCase(target.getHost()) && "/sistema".equals(path);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private Map<String, String> parseFormBody(String body) {
+        Map<String, String> data = new HashMap<>();
+        if (body == null || body.trim().isEmpty()) return data;
+
+        String[] pairs = body.split("&");
+        for (String pair : pairs) {
+            String[] parts = pair.split("=", 2);
+            String key = decodeFormValue(parts.length > 0 ? parts[0] : "");
+            String value = decodeFormValue(parts.length > 1 ? parts[1] : "");
+            if (!key.isEmpty()) {
+                data.put(key, value);
+            }
+        }
+
+        return data;
+    }
+
+    private String decodeFormValue(String value) {
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8.name());
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private String jsString(String value) {
+        if (value == null) return "''";
+        return "'" + value
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r") + "'";
     }
 
     private HttpURLConnection openConnection(String url) throws Exception {

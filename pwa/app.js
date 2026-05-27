@@ -1330,11 +1330,11 @@ function parseGradesHtml(html) {
   Array.from(doc.querySelectorAll("table")).forEach((table) => {
     const headerRow = Array.from(table.querySelectorAll("tr")).find((tr) => tr.querySelectorAll("th,td").length >= 2);
     const headers = headerRow
-      ? Array.from(headerRow.querySelectorAll("th,td")).map((cell) => normalizeHeader(cell.textContent))
+      ? Array.from(headerRow.querySelectorAll("th,td")).map((cell) => normalizeHeader(getCellText(cell)))
       : [];
 
     Array.from(table.querySelectorAll("tr")).forEach((tr, rowIndex) => {
-      const cells = Array.from(tr.querySelectorAll("td,th")).map((cell) => cleanText(cell.textContent));
+      const cells = Array.from(tr.querySelectorAll("td,th")).map(getCellText);
       if (cells.length < 2 || rowIndex === 0) return;
 
       const row = {};
@@ -1353,6 +1353,11 @@ function parseGradesHtml(html) {
 
   if (rows.length) return rows;
   return parseLooseGradesText(getHtmlTextLines(doc));
+}
+
+function getCellText(cell) {
+  if (!cell) return "";
+  return cleanText(cell.innerText || cell.textContent || "");
 }
 
 function mapGradeCells(cells) {
