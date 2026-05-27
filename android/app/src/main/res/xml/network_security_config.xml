@@ -5,8 +5,8 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <domain-config cleartextTrafficPermitted="false">
-        <domain>siit.itdurango.edu.mx</domain>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">siit.itdurango.edu.mx</domain>
         <trust-anchors>
             <certificates src="@raw/sectigo_root_r46" />
             <certificates src="system" />
