@@ -516,25 +516,81 @@ async function postSiiGrades(control, password) {
     throw Object.assign(new Error("Missing SII grades URL."), { code: "missing_grades_url" });
   }
 
-  return postSiiForm(url, control, password);
+  const variants = getSiiGradeRequestVariants();
+  let fallbackResponse = null;
+
+  for (const variant of variants) {
+    const response = await postSiiForm(url, control, password, variant);
+    const grades = parseSiiGrades(response.data);
+    if (grades.length) return response;
+
+    if (!fallbackResponse || getResponseSize(response) > getResponseSize(fallbackResponse)) {
+      fallbackResponse = response;
+    }
+  }
+
+  return fallbackResponse;
 }
 
-async function postSiiForm(url, control, password) {
+function getSiiGradeRequestVariants() {
+  const configuredType = window.AppHorarioHttp && typeof window.AppHorarioHttp.getEnvValue === "function"
+    ? window.AppHorarioHttp.getEnvValue("API_TIPO_CALIFICACIONES")
+    : "";
+  const variants = [
+    configuredType ? { tipo: configuredType } : null,
+    { tipo: "c" },
+    { tipo: "calificaciones" },
+    { tipo: "k" },
+    { tipo: "p" },
+    { tipo: "a", accion: "calificaciones" },
+    { tipo: "a", modulo: "calificaciones" },
+    { tipo: "a" },
+    {}
+  ].filter(Boolean);
+  const seen = new Set();
+
+  return variants.filter((variant) => {
+    const key = JSON.stringify(variant);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function getResponseSize(response) {
+  if (!response) return 0;
+  if (typeof response.data === "string") return response.data.length;
+  if (response.data && typeof response.data === "object") return JSON.stringify(response.data).length;
+  return 0;
+}
+
+async function postSiiForm(url, control, password, extraData = { tipo: "a" }) {
   if (!window.AppHorarioHttp || typeof window.AppHorarioHttp.postForm !== "function") {
     throw Object.assign(new Error("Missing HTTP client."), { code: "missing_http_client" });
   }
 
-  const response = await window.AppHorarioHttp.postForm(url, {
+  const payload = removeEmptyFormValues({
     tipo: "a",
+    ...extraData,
     usuario: control,
     contrasena: password
-  }, {
+  });
+
+  const response = await window.AppHorarioHttp.postForm(url, payload, {
     headers: {
       "X-Requested-With": "XMLHttpRequest"
     }
   });
 
   return response;
+}
+
+function removeEmptyFormValues(values) {
+  return Object.entries(values).reduce((cleanValues, [key, value]) => {
+    if (value === undefined || value === null || value === "") return cleanValues;
+    cleanValues[key] = value;
+    return cleanValues;
+  }, {});
 }
 
 function getSiiApiUrl(kind = "default") {
@@ -1431,9 +1487,26 @@ function describeGradesResponse(data) {
       : [];
     const lines = getHtmlTextLines(doc);
     const gradeLikeLines = lines.filter((line) => /\b(?:\d{1,3}(?:\.\d+)?|np|na|ac|nc|sd)\b/i.test(line)).length;
+    const preview = getSafeResponsePreview(trimmed, lines);
 
-    return `Formato HTML, ${tables.length} tabla${tables.length === 1 ? "" : "s"} detectada${tables.length === 1 ? "" : "s"}, ${lines.length} bloque${lines.length === 1 ? "" : "s"} de texto, ${gradeLikeLines} con números${firstHeaders.length ? `, columnas: ${firstHeaders.join(", ")}` : ""}.`;
+    return `Formato HTML, ${tables.length} tabla${tables.length === 1 ? "" : "s"} detectada${tables.length === 1 ? "" : "s"}, ${lines.length} bloque${lines.length === 1 ? "" : "s"} de texto, ${gradeLikeLines} con números${firstHeaders.length ? `, columnas: ${firstHeaders.join(", ")}` : ""}${preview ? `, texto: "${preview}"` : ""}.`;
   }
+}
+
+function getSafeResponsePreview(rawText, lines = []) {
+  const source = lines.length
+    ? lines.join(" ")
+    : cleanText(rawText.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " "));
+  const preview = sanitizeResponsePreview(source);
+  return preview.length > 120 ? `${preview.slice(0, 120)}...` : preview;
+}
+
+function sanitizeResponsePreview(value) {
+  return cleanText(value)
+    .replace(/\b\d{4,}\b/g, "####")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[correo]")
+    .replace(/(contrasena|contrase\u00f1a|password|nip)\s*[:=]\s*\S+/gi, "$1=[oculto]")
+    .replace(/(usuario|control)\s*[:=]\s*\S+/gi, "$1=[oculto]");
 }
 
 function describeGradeObject(data) {
