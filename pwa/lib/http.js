@@ -8,10 +8,12 @@
   function getApiUrl(kind = "default") {
     const accessUrl = getEnvValue("API_URL_ACCESO");
     const scheduleUrl = getEnvValue("API_URL_HORARIO");
+    const gradesUrl = getEnvValue("API_URL_CALIFICACIONES");
     const defaultUrl = getEnvValue("API_URL");
 
     if (kind === "access") return accessUrl || defaultUrl || scheduleUrl;
     if (kind === "schedule") return scheduleUrl || defaultUrl || accessUrl;
+    if (kind === "grades") return gradesUrl || "";
 
     return defaultUrl || accessUrl || scheduleUrl;
   }

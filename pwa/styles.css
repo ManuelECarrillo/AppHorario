@@ -96,6 +96,13 @@ button:active {
   min-width: 0;
 }
 
+.topbar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
 h1,
 h2,
 p {
@@ -592,6 +599,61 @@ h2 {
 
 .install-hint {
   padding-top: 4px;
+}
+
+.grades-list {
+  display: grid;
+  gap: 10px;
+  max-height: 48vh;
+  overflow: auto;
+  padding-bottom: 16px;
+}
+
+.grade-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.grade-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.grade-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.grade-pill {
+  display: grid;
+  min-width: 64px;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.grade-pill small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.grade-pill strong {
+  font-size: 1rem;
+}
+
+.grade-pill.average {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--line));
+  color: var(--primary-dark);
 }
 
 .sii-login-message {

@@ -22,12 +22,17 @@
           <p class="eyebrow">Mi estudio</p>
           <h1 id="appTitle">AppHorario</h1>
         </div>
-        <button class="icon-button" id="notifyButton" type="button" aria-label="Activar notificaciones" title="Activar notificaciones">
-          <i data-lucide="bell"></i>
-        </button>
-        <button class="icon-button" id="installButton" type="button" aria-label="Instalar app" title="Instalar app" hidden>
-          <i data-lucide="download"></i>
-        </button>
+        <div class="topbar-actions">
+          <button class="icon-button" id="gradesButton" type="button" data-open-dialog="gradesDialog" aria-label="Ver calificaciones" title="Ver calificaciones">
+            <i data-lucide="graduation-cap"></i>
+          </button>
+          <button class="icon-button" id="notifyButton" type="button" aria-label="Activar notificaciones" title="Activar notificaciones">
+            <i data-lucide="bell"></i>
+          </button>
+          <button class="icon-button" id="installButton" type="button" aria-label="Instalar app" title="Instalar app" hidden>
+            <i data-lucide="download"></i>
+          </button>
+        </div>
       </header>
 
       <main>
@@ -285,6 +290,35 @@
         </fieldset>
         <button class="primary-button" type="submit">Guardar clase</button>
       </form>
+    </dialog>
+
+    <dialog class="dialog wide" id="gradesDialog">
+      <form method="dialog" id="gradesForm">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">SII escolar</p>
+            <h2>Calificaciones parciales</h2>
+          </div>
+          <button class="icon-button small" type="button" data-close-dialog="gradesDialog" aria-label="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            Número de control
+            <input id="gradesControl" inputmode="numeric" autocomplete="username" maxlength="30" required placeholder="Tu número de control">
+          </label>
+          <label class="field">
+            NIP
+            <input id="gradesPassword" type="password" inputmode="numeric" autocomplete="current-password" maxlength="4" required placeholder="4 dígitos">
+          </label>
+        </div>
+        <p class="muted sii-login-message" id="gradesMessage">Consulta tus parciales sin guardar tu contraseña en la app.</p>
+        <button class="primary-button" type="submit" id="gradesSubmitButton">Ver calificaciones</button>
+      </form>
+      <section class="detail-section inside-dialog">
+        <div class="grades-list" id="gradesList"></div>
+      </section>
     </dialog>
 
     <dialog class="dialog task-dialog" id="taskDialog">

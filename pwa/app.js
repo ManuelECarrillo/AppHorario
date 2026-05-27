@@ -141,6 +141,10 @@ const elements = {
   recordAudioButton: $("#recordAudioButton"),
   stopAudioButton: $("#stopAudioButton"),
   recordingStatus: $("#recordingStatus"),
+  gradesButton: $("#gradesButton"),
+  gradesMessage: $("#gradesMessage"),
+  gradesSubmitButton: $("#gradesSubmitButton"),
+  gradesList: $("#gradesList"),
   notifyButton: $("#notifyButton"),
   testNotificationButton: $("#testNotificationButton"),
   siiStatus: $("#siiStatus"),
@@ -305,6 +309,7 @@ function bindDialogs() {
       if (button.dataset.openDialog === "classDialog") resetClassForm();
       if (button.dataset.openDialog === "taskDialog") resetTaskForm();
       if (button.dataset.openDialog === "examDialog") resetExamForm();
+      if (button.dataset.openDialog === "gradesDialog") resetGradesDialog();
       openDialog(button.dataset.openDialog);
     });
   });
@@ -416,6 +421,7 @@ function bindForms() {
   $("#examForm").addEventListener("submit", saveExam);
   $("#noteForm").addEventListener("submit", saveNote);
   $("#siiLoginForm").addEventListener("submit", loginSii);
+  $("#gradesForm").addEventListener("submit", loadGrades);
   $("#detailAddTask").addEventListener("click", addTaskFromDetail);
   $("#detailAddExam").addEventListener("click", addExamFromDetail);
   $("#detailEditClass").addEventListener("click", editClassFromDetail);
@@ -504,6 +510,15 @@ async function postSiiSchedule(control, password) {
   return postSiiForm(url, control, password);
 }
 
+async function postSiiGrades(control, password) {
+  const url = getSiiApiUrl("grades");
+  if (!url) {
+    throw Object.assign(new Error("Missing SII grades URL."), { code: "missing_grades_url" });
+  }
+
+  return postSiiForm(url, control, password);
+}
+
 async function postSiiForm(url, control, password) {
   if (!window.AppHorarioHttp || typeof window.AppHorarioHttp.postForm !== "function") {
     throw Object.assign(new Error("Missing HTTP client."), { code: "missing_http_client" });
@@ -556,6 +571,10 @@ function getSiiLoginErrorMessage(error) {
 
   if (error && error.code === "missing_schedule_url") {
     return "No encontré la URL del horario dentro del build. Revisa que esté en .env como API_URL_HORARIO o API_URL y vuelve a compilar la app.";
+  }
+
+  if (error && error.code === "missing_grades_url") {
+    return "Todavía no encontré la URL de calificaciones. Agrega API_URL_CALIFICACIONES al .env y vuelve a compilar la app.";
   }
 
   if (error && error.code === "missing_http_client") {
@@ -857,6 +876,261 @@ function dedupeSiiClasses(classes) {
     seen.add(key);
     return true;
   });
+}
+
+async function loadGrades(event) {
+  event.preventDefault();
+
+  const control = $("#gradesControl").value.trim();
+  const password = $("#gradesPassword").value.trim();
+
+  if (!control || !password) {
+    setGradesMessage("Escribe tu número de control y NIP para consultar.", "error");
+    return;
+  }
+
+  if (!/^\d{1,4}$/.test(password)) {
+    setGradesMessage("El NIP debe ser numérico y de máximo 4 dígitos.", "error");
+    return;
+  }
+
+  setGradesBusy(true);
+  setGradesMessage("Consultando calificaciones...", "pending");
+  elements.gradesList.innerHTML = emptyState("Buscando parciales en el SII.");
+
+  try {
+    const response = await postSiiGrades(control, password);
+    const grades = parseSiiGrades(response.data);
+
+    if (response && (response.status < 200 || response.status >= 400)) {
+      setGradesMessage(`La app llegó al endpoint, pero el servidor respondió con HTTP ${response.status}.`, "error");
+      return;
+    }
+
+    if (!grades.length) {
+      setGradesMessage("Conectó, pero no encontré calificaciones en la respuesta.", "error");
+      elements.gradesList.innerHTML = emptyState("Sin calificaciones detectadas.");
+      return;
+    }
+
+    $("#gradesPassword").value = "";
+    setGradesMessage(`Encontré ${grades.length} materia${grades.length === 1 ? "" : "s"} con calificaciones.`, "success");
+    renderGrades(grades);
+  } catch (error) {
+    setGradesMessage(getSiiLoginErrorMessage(error), "error");
+    elements.gradesList.innerHTML = emptyState("No pude cargar calificaciones.");
+  } finally {
+    setGradesBusy(false);
+  }
+}
+
+function parseSiiGrades(data) {
+  if (!data) return [];
+
+  if (typeof data !== "string") {
+    return normalizeGradesData(data);
+  }
+
+  const trimmed = data.trim();
+  if (!trimmed) return [];
+
+  try {
+    return normalizeGradesData(JSON.parse(trimmed));
+  } catch {
+    return parseGradesHtml(trimmed);
+  }
+}
+
+function normalizeGradesData(data) {
+  const rows = getGradeRows(data);
+  return rows.map(normalizeGradeRow).filter(Boolean);
+}
+
+function getGradeRows(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return [];
+
+  const candidateKeys = [
+    "calificaciones",
+    "calificacion",
+    "grades",
+    "parciales",
+    "materias",
+    "subjects",
+    "data",
+    "result",
+    "rows",
+    "items",
+    "records"
+  ];
+
+  for (const [key, candidate] of Object.entries(data)) {
+    if (!candidateKeys.includes(normalizeHeader(key))) continue;
+    if (Array.isArray(candidate)) return candidate;
+    if (candidate && typeof candidate === "object") {
+      const nestedRows = getGradeRows(candidate);
+      if (nestedRows.length) return nestedRows;
+    }
+  }
+
+  for (const candidate of Object.values(data)) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const nestedRows = getGradeRows(candidate);
+    if (nestedRows.length) return nestedRows;
+  }
+
+  return [];
+}
+
+function normalizeGradeRow(row) {
+  if (!row || typeof row !== "object") return null;
+
+  const subject = cleanText(pickFirst(row, [
+    "materia",
+    "asignatura",
+    "nombre",
+    "nombre_materia",
+    "nombreMateria",
+    "materia_nombre",
+    "clase",
+    "subject"
+  ]));
+  if (!subject) return null;
+
+  const teacher = cleanText(pickFirst(row, ["profesor", "docente", "maestro", "teacher"]));
+  const average = cleanText(pickFirst(row, ["promedio", "final", "calificacion_final", "calificacionFinal", "average"]));
+  const status = cleanText(pickFirst(row, ["estatus", "estado", "status", "observacion", "observación"]));
+  const grades = [];
+
+  Object.entries(row).forEach(([key, value]) => {
+    const label = getGradeLabel(key);
+    const grade = cleanText(value);
+    if (!label || !grade) return;
+    grades.push({ label, value: grade });
+  });
+
+  return {
+    subject: splitSiiClassNameAndTeacher(subject, teacher).name,
+    teacher,
+    average,
+    status,
+    grades
+  };
+}
+
+function getGradeLabel(key) {
+  const normalized = normalizeHeader(key);
+  const labels = {
+    p1: "P1",
+    p2: "P2",
+    p3: "P3",
+    p4: "P4",
+    parcial1: "P1",
+    parcial2: "P2",
+    parcial3: "P3",
+    parcial4: "P4",
+    unidad1: "U1",
+    unidad2: "U2",
+    unidad3: "U3",
+    unidad4: "U4",
+    unidad5: "U5",
+    unidad6: "U6",
+    u1: "U1",
+    u2: "U2",
+    u3: "U3",
+    u4: "U4",
+    u5: "U5",
+    u6: "U6",
+    primer_parcial: "P1",
+    segundo_parcial: "P2",
+    tercer_parcial: "P3",
+    cuarto_parcial: "P4"
+  };
+
+  if (labels[normalized]) return labels[normalized];
+
+  const partialMatch = normalized.match(/(?:parcial|unidad|u|p)_?(\d+)/);
+  if (partialMatch) {
+    return normalized.includes("unidad") || normalized.startsWith("u") ? `U${partialMatch[1]}` : `P${partialMatch[1]}`;
+  }
+
+  return "";
+}
+
+function parseGradesHtml(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const rows = [];
+
+  Array.from(doc.querySelectorAll("table")).forEach((table) => {
+    const headerRow = Array.from(table.querySelectorAll("tr")).find((tr) => tr.querySelectorAll("th,td").length >= 2);
+    const headers = headerRow
+      ? Array.from(headerRow.querySelectorAll("th,td")).map((cell) => normalizeHeader(cell.textContent))
+      : [];
+
+    Array.from(table.querySelectorAll("tr")).forEach((tr, rowIndex) => {
+      const cells = Array.from(tr.querySelectorAll("td,th")).map((cell) => cleanText(cell.textContent));
+      if (cells.length < 2 || rowIndex === 0) return;
+
+      const row = {};
+      headers.forEach((header, index) => {
+        if (header) row[header] = cells[index] || "";
+      });
+
+      if (!Object.keys(row).length || !pickFirst(row, ["materia", "asignatura", "nombre", "subject"])) {
+        row.materia = cells[0] || "";
+        cells.slice(1).forEach((cell, index) => {
+          row[`parcial_${index + 1}`] = cell;
+        });
+      }
+
+      const normalized = normalizeGradeRow(row);
+      if (normalized) rows.push(normalized);
+    });
+  });
+
+  return rows;
+}
+
+function renderGrades(grades) {
+  elements.gradesList.innerHTML = grades.map((item) => `
+    <article class="grade-card">
+      <div>
+        <h3>${escapeHtml(item.subject)}</h3>
+        ${item.teacher ? `<p class="muted">Profesor: ${escapeHtml(item.teacher)}</p>` : ""}
+      </div>
+      <div class="grade-values">
+        ${item.grades.length ? item.grades.map((grade) => `
+          <span class="grade-pill">
+            <small>${escapeHtml(grade.label)}</small>
+            <strong>${escapeHtml(grade.value)}</strong>
+          </span>
+        `).join("") : `<span class="muted">Sin parciales visibles</span>`}
+        ${item.average ? `
+          <span class="grade-pill average">
+            <small>Promedio</small>
+            <strong>${escapeHtml(item.average)}</strong>
+          </span>
+        ` : ""}
+      </div>
+      ${item.status ? `<p class="muted">${escapeHtml(item.status)}</p>` : ""}
+    </article>
+  `).join("");
+}
+
+function resetGradesDialog() {
+  if (elements.gradesList) elements.gradesList.innerHTML = emptyState("Inicia sesión para consultar tus parciales.");
+  setGradesMessage("Consulta tus parciales sin guardar tu contraseña en la app.");
+  setGradesBusy(false);
+}
+
+function setGradesBusy(isBusy) {
+  if (elements.gradesSubmitButton) elements.gradesSubmitButton.disabled = isBusy;
+}
+
+function setGradesMessage(message, tone = "") {
+  if (!elements.gradesMessage) return;
+  elements.gradesMessage.textContent = message;
+  elements.gradesMessage.dataset.tone = tone;
 }
 
 function pickFirst(source, keys) {
