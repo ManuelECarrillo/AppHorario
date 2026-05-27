@@ -609,6 +609,38 @@ h2 {
   padding-bottom: 16px;
 }
 
+#gradesDialog.grades-loaded {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: min(calc(100dvh - 24px), 860px);
+  overflow: hidden;
+}
+
+#gradesDialog.grades-loaded form {
+  gap: 10px;
+  padding-bottom: 10px;
+}
+
+#gradesDialog.grades-loaded .field-row,
+#gradesDialog.grades-loaded #gradesSubmitButton {
+  display: none;
+}
+
+#gradesDialog.grades-loaded .sii-login-message {
+  padding: 8px 10px;
+}
+
+#gradesDialog.grades-loaded .inside-dialog {
+  min-height: 0;
+  padding-bottom: 16px;
+}
+
+#gradesDialog.grades-loaded .grades-list {
+  max-height: none;
+  height: 100%;
+  padding-bottom: 0;
+}
+
 .grade-card {
   display: grid;
   gap: 10px;
@@ -654,6 +686,16 @@ h2 {
 .grade-pill.average {
   border-color: color-mix(in srgb, var(--primary) 35%, var(--line));
   color: var(--primary-dark);
+}
+
+.grade-pill.danger {
+  border-color: color-mix(in srgb, #c7503d 52%, var(--line));
+  color: #ad2e20;
+  background: color-mix(in srgb, #c7503d 13%, var(--surface));
+}
+
+.grade-pill.danger small {
+  color: #8f2a20;
 }
 
 .sii-login-message {

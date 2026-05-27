@@ -1033,6 +1033,7 @@ async function loadGrades(event) {
   }
 
   setGradesBusy(true);
+  setGradesDialogExpanded(false);
   setGradesMessage("Consultando calificaciones...", "pending");
   elements.gradesList.innerHTML = emptyState("Buscando parciales en el SII.");
 
@@ -1041,21 +1042,29 @@ async function loadGrades(event) {
     const grades = parseSiiGrades(response.data);
 
     if (response && (response.status < 200 || response.status >= 400)) {
+      setGradesDialogExpanded(false);
       setGradesMessage(`La app llegó al endpoint, pero el servidor respondió con HTTP ${response.status}.`, "error");
       return;
     }
 
     if (!grades.length) {
       const summary = describeGradesResponse(response.data);
+      setGradesDialogExpanded(false);
       setGradesMessage(`Conectó, pero no encontré calificaciones en la respuesta. ${summary}`, "error");
       elements.gradesList.innerHTML = emptyState("Sin calificaciones detectadas.");
       return;
     }
 
     $("#gradesPassword").value = "";
-    setGradesMessage(`Encontré ${grades.length} materia${grades.length === 1 ? "" : "s"} con calificaciones.`, "success");
+    const zeroCount = countZeroGrades(grades);
+    setGradesDialogExpanded(true);
+    setGradesMessage(
+      `Encontré ${grades.length} materia${grades.length === 1 ? "" : "s"} con calificaciones. ${zeroCount ? `${zeroCount} en rojo.` : "Sin calificaciones en cero."}`,
+      "success"
+    );
     renderGrades(grades);
   } catch (error) {
+    setGradesDialogExpanded(false);
     setGradesMessage(getSiiLoginErrorMessage(error), "error");
     elements.gradesList.innerHTML = emptyState("No pude cargar calificaciones.");
   } finally {
@@ -1622,13 +1631,13 @@ function renderGrades(grades) {
       </div>
       <div class="grade-values">
         ${item.grades.length ? item.grades.map((grade) => `
-          <span class="grade-pill">
+          <span class="grade-pill${isZeroGradeValue(grade.value) ? " danger" : ""}">
             <small>${escapeHtml(grade.label)}</small>
             <strong>${escapeHtml(grade.value)}</strong>
           </span>
         `).join("") : `<span class="muted">Sin parciales visibles</span>`}
         ${item.average ? `
-          <span class="grade-pill average">
+          <span class="grade-pill average${isZeroGradeValue(item.average) ? " danger" : ""}">
             <small>Promedio</small>
             <strong>${escapeHtml(item.average)}</strong>
           </span>
@@ -1640,9 +1649,30 @@ function renderGrades(grades) {
 }
 
 function resetGradesDialog() {
+  setGradesDialogExpanded(false);
   if (elements.gradesList) elements.gradesList.innerHTML = emptyState("Inicia sesión para consultar tus parciales.");
   setGradesMessage("Consulta tus parciales sin guardar tu contraseña en la app.");
   setGradesBusy(false);
+}
+
+function countZeroGrades(grades) {
+  return grades.reduce((total, item) => {
+    const zeroPartials = (item.grades || []).filter((grade) => isZeroGradeValue(grade.value)).length;
+    const zeroAverage = isZeroGradeValue(item.average) ? 1 : 0;
+    return total + zeroPartials + zeroAverage;
+  }, 0);
+}
+
+function isZeroGradeValue(value) {
+  const text = cleanText(value).replace(",", ".");
+  if (!text) return false;
+  return /^0(?:\.0+)?$/.test(text);
+}
+
+function setGradesDialogExpanded(isExpanded) {
+  const dialog = $("#gradesDialog");
+  if (!dialog) return;
+  dialog.classList.toggle("grades-loaded", Boolean(isExpanded));
 }
 
 function setGradesBusy(isBusy) {
