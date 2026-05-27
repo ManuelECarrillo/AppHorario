@@ -609,33 +609,33 @@ h2 {
   padding-bottom: 16px;
 }
 
-#gradesDialog.grades-loaded {
+#gradesDialog[open].grades-loaded {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   height: min(calc(100dvh - 24px), 860px);
   overflow: hidden;
 }
 
-#gradesDialog.grades-loaded form {
+#gradesDialog[open].grades-loaded form {
   gap: 10px;
   padding-bottom: 10px;
 }
 
-#gradesDialog.grades-loaded .field-row,
-#gradesDialog.grades-loaded #gradesSubmitButton {
+#gradesDialog[open].grades-loaded .field-row,
+#gradesDialog[open].grades-loaded #gradesSubmitButton {
   display: none;
 }
 
-#gradesDialog.grades-loaded .sii-login-message {
+#gradesDialog[open].grades-loaded .sii-login-message {
   padding: 8px 10px;
 }
 
-#gradesDialog.grades-loaded .inside-dialog {
+#gradesDialog[open].grades-loaded .inside-dialog {
   min-height: 0;
   padding-bottom: 16px;
 }
 
-#gradesDialog.grades-loaded .grades-list {
+#gradesDialog[open].grades-loaded .grades-list {
   max-height: none;
   height: 100%;
   padding-bottom: 0;
