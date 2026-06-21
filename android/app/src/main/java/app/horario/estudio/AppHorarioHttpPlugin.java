@@ -1,10 +1,18 @@
 package app.horario.estudio;
 
 import android.annotation.SuppressLint;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
+import android.util.Base64;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
@@ -18,28 +26,20 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import org.json.JSONArray;
 
 @CapacitorPlugin(name = "AppHorarioHttp")
@@ -90,7 +90,10 @@ public class AppHorarioHttpPlugin extends Plugin {
                 response.put("headers", readHeaders(connection));
                 call.resolve(response);
             } catch (Exception error) {
-                call.reject(error.getMessage(), error.getClass().getSimpleName(), error);
+                String msg = error.getMessage();
+                if (msg == null) msg = error.getClass().getName();
+                android.util.Log.e("AppHorarioHttp", "postForm error [" + error.getClass().getSimpleName() + "]: " + msg, error);
+                call.reject(msg, error.getClass().getSimpleName(), error);
             } finally {
                 if (connection != null) {
                     connection.disconnect();
@@ -166,7 +169,7 @@ public class AppHorarioHttpPlugin extends Plugin {
             settings.setLoadsImagesAutomatically(false);
             settings.setBlockNetworkImage(true);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
             }
 
             webView.setWebViewClient(new WebViewClient() {
@@ -346,32 +349,48 @@ public class AppHorarioHttpPlugin extends Plugin {
         settings.setDatabaseEnabled(true);
         settings.setLoadsImagesAutomatically(false);
         settings.setBlockNetworkImage(true);
-        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(false);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         }
     }
 
     private void submitSiiLoginForm(WebView webView, Map<String, String> formData) {
-        String type = formData.containsKey("tipo") ? formData.get("tipo") : "a";
-        String user = formData.containsKey("usuario") ? formData.get("usuario") : "";
-        String password = formData.containsKey("contrasena") ? formData.get("contrasena") : "";
-        String script =
-            "(function(){" +
-            "var form=document.forms.acceso||document.querySelector('form[name=\"acceso\"]')||document.querySelector('form');" +
-            "if(!form){return 'missing-form';}" +
-            "if(window.mostrar){try{window.mostrar(" + jsString(type) + ");}catch(e){}}" +
-            "var tipo=form.elements.tipo||document.querySelector('[name=\"tipo\"]');" +
-            "var usuario=form.elements.usuario||document.querySelector('[name=\"usuario\"]');" +
-            "var contrasena=form.elements.contrasena||document.querySelector('[name=\"contrasena\"]');" +
-            "if(tipo){tipo.value=" + jsString(type) + ";}" +
-            "if(usuario){usuario.value=" + jsString(user) + ";}" +
-            "if(contrasena){contrasena.value=" + jsString(password) + ";}" +
-            "form.submit();" +
-            "return 'submitted';" +
-            "})()";
+        // Build a generic form-fill script: works for SII (usuario/contrasena/tipo)
+        // and for Moodle (username/password) by iterating formData keys directly.
+        StringBuilder sb = new StringBuilder();
+        sb.append("(function(){");
+        sb.append("var form=document.querySelector('form#login')")
+          .append("||document.forms['acceso']")
+          .append("||document.querySelector('form[name=\"acceso\"]')")
+          .append("||document.querySelector('form');");
+        sb.append("if(!form){return 'missing-form';}");
 
-        webView.evaluateJavascript(script, ignored -> {});
+        // SII-specific: call mostrar() to reveal the student login panel
+        if (formData.containsKey("tipo")) {
+            sb.append("if(window.mostrar){try{window.mostrar(")
+              .append(jsString(formData.get("tipo")))
+              .append(");}catch(e){}}");
+        }
+
+        // Fill each field by name using JSON.stringify for safe CSS selector building
+        for (Map.Entry<String, String> entry : formData.entrySet()) {
+            sb.append("(function(k,v){")
+              .append("var el=form.elements[k]")
+              .append("||document.querySelector('[name='+JSON.stringify(k)+']');")
+              .append("if(el){el.value=v;}})(")
+              .append(jsString(entry.getKey())).append(",")
+              .append(jsString(entry.getValue())).append(");");
+        }
+
+        // Click the submit button (triggers Moodle/YUI3 JS handlers) rather than
+        // calling form.submit() directly which bypasses those handlers.
+        sb.append("var btn=document.getElementById('loginbtn')")
+          .append("||form.querySelector('button[type=\"submit\"]')")
+          .append("||form.querySelector('input[type=\"submit\"]');")
+          .append("if(btn){btn.click();}else{form.submit();}")
+          .append("return 'submitted';})()");
+        webView.evaluateJavascript(sb.toString(), ignored -> {});
     }
 
     private boolean shouldBlockSiiFallbackRedirect(int phase, String nextUrl, String targetUrl) {
@@ -423,43 +442,7 @@ public class AppHorarioHttpPlugin extends Plugin {
     }
 
     private HttpURLConnection openConnection(String url) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-
-        if (connection instanceof HttpsURLConnection) {
-            HttpsURLConnection httpsConnection = (HttpsURLConnection) connection;
-            SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, trustAllManagers(), new SecureRandom());
-            httpsConnection.setSSLSocketFactory(sslContext.getSocketFactory());
-            httpsConnection.setHostnameVerifier(trustAllHostnames());
-        }
-
-        return connection;
-    }
-
-    private TrustManager[] trustAllManagers() {
-        return new TrustManager[] {
-            new X509TrustManager() {
-                @Override
-                public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-
-                @Override
-                public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-
-                @Override
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-            }
-        };
-    }
-
-    private HostnameVerifier trustAllHostnames() {
-        return new HostnameVerifier() {
-            @Override
-            public boolean verify(String hostname, SSLSession session) {
-                return true;
-            }
-        };
+        return (HttpURLConnection) new URL(url).openConnection();
     }
 
     private void applyHeaders(HttpURLConnection connection, JSObject headers) {
@@ -479,15 +462,62 @@ public class AppHorarioHttpPlugin extends Plugin {
         InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
         if (stream == null) return "";
 
-        StringBuilder builder = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                builder.append(line).append('\n');
+        byte[] bytes = readAllBytes(stream);
+        Charset charset = getResponseCharset(connection.getContentType());
+        String text = new String(bytes, charset);
+
+        if (StandardCharsets.UTF_8.equals(charset) && hasBrokenEncoding(text)) {
+            String latinText = new String(bytes, StandardCharsets.ISO_8859_1);
+            if (countBrokenCharacters(latinText) < countBrokenCharacters(text)) {
+                text = latinText;
             }
         }
 
-        return builder.toString();
+        return text;
+    }
+
+    private byte[] readAllBytes(InputStream stream) throws Exception {
+        try (InputStream input = stream; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+            return output.toByteArray();
+        }
+    }
+
+    private Charset getResponseCharset(String contentType) {
+        if (contentType == null) return StandardCharsets.UTF_8;
+
+        String[] parts = contentType.split(";");
+        for (String part : parts) {
+            String[] pair = part.trim().split("=", 2);
+            if (pair.length != 2 || !"charset".equalsIgnoreCase(pair[0].trim())) continue;
+
+            try {
+                return Charset.forName(pair[1].trim().replace("\"", ""));
+            } catch (Exception ignored) {
+                return StandardCharsets.UTF_8;
+            }
+        }
+
+        return StandardCharsets.UTF_8;
+    }
+
+    private boolean hasBrokenEncoding(String value) {
+        return value != null && value.indexOf('\uFFFD') >= 0;
+    }
+
+    private int countBrokenCharacters(String value) {
+        if (value == null || value.isEmpty()) return 0;
+
+        int count = 0;
+        for (int index = 0; index < value.length(); index++) {
+            if (value.charAt(index) == '\uFFFD') count++;
+        }
+
+        return count;
     }
 
     private JSObject readHeaders(HttpURLConnection connection) {
@@ -510,5 +540,49 @@ public class AppHorarioHttpPlugin extends Plugin {
         } catch (Exception ignored) {
             return value;
         }
+    }
+
+    @PluginMethod
+    public void saveImageToGallery(final PluginCall call) {
+        executor.execute(() -> {
+            try {
+                String base64 = call.getString("base64", "");
+                String filename = call.getString("filename", "horario.png");
+
+                byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                if (bitmap == null) { call.reject("Invalid image data"); return; }
+
+                ContentResolver resolver = getContext().getContentResolver();
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Images.Media.DISPLAY_NAME, filename);
+                values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    values.put(MediaStore.Images.Media.RELATIVE_PATH,
+                            Environment.DIRECTORY_PICTURES + "/AppHorario");
+                    values.put(MediaStore.Images.Media.IS_PENDING, 1);
+                }
+
+                Uri uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                if (uri == null) { call.reject("Could not create gallery entry"); return; }
+
+                try (OutputStream out = resolver.openOutputStream(uri)) {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    values.clear();
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                    resolver.update(uri, values, null, null);
+                }
+
+                JSObject result = new JSObject();
+                result.put("uri", uri.toString());
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject("saveImageToGallery failed: " + e.getMessage());
+            }
+        });
     }
 }

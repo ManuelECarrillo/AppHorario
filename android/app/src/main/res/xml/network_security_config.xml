@@ -1,14 +1,64 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Certificate pinning for AppHorario.
+
+  The SII domain (siit.itdurango.edu.mx) is restricted to trust only the
+  bundled Sectigo Public Server Authentication Root R46 certificate. Any
+  server presenting a certificate NOT signed by this CA will be rejected,
+  blocking MITM attacks even if a rogue CA is installed on the device.
+
+  To update the pin when the SII rotates its certificate:
+    1. Obtain the new root CA certificate (PEM format).
+    2. Replace android/app/src/main/res/raw/sectigo_root_r46.pem.
+    3. Rebuild and release the APK.
+
+  For stronger leaf-certificate pinning (pin-set), run:
+    openssl s_client -connect siit.itdurango.edu.mx:443 -showcerts 2>/dev/null \
+      | openssl x509 -pubkey -noout | openssl pkey -pubin -outform DER \
+      | openssl dgst -sha256 -binary | base64
+  Then add a <pin-set> block inside <domain-config>.
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
+    <!-- Default: only trust the system CA store. No cleartext. -->
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <domain-config cleartextTrafficPermitted="true">
+
+    <!--
+      SII school portal: trust the full Sectigo chain:
+        leaf (*.itdurango.edu.mx)
+          → intermediate (Sectigo Public Server Authentication CA DV R36)
+          → root        (Sectigo Public Server Authentication Root R46)
+
+      The server only sends the leaf cert, so we bundle both intermediate
+      and root to allow Android to build the chain on any device regardless
+      of whether its system CA store includes these Sectigo certs.
+    -->
+    <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">siit.itdurango.edu.mx</domain>
         <trust-anchors>
+            <certificates src="@raw/sectigo_dv_r36" />
             <certificates src="@raw/sectigo_root_r46" />
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+
+    <!-- Moodle school platform: same Sectigo chain as SII (*.itdurango.edu.mx wildcard). -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">plataforma.itdurango.edu.mx</domain>
+        <trust-anchors>
+            <certificates src="@raw/sectigo_dv_r36" />
+            <certificates src="@raw/sectigo_root_r46" />
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+
+    <!-- Localhost is needed by Capacitor's live-reload dev server. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </domain-config>

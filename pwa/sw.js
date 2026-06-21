@@ -1,13 +1,23 @@
-const CACHE_NAME = "apphorario-v24";
+const CACHE_NAME = "apphorario-v26";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
-  "app.js",
   "lib/http.js",
+  "js/01-core.js",
+  "js/02-events.js",
+  "js/03-sii-schedule.js",
+  "js/04-grades.js",
+  "js/05-sii-text-utils.js",
+  "js/06-settings-location.js",
+  "js/07-platform-notifications.js",
+  "js/08-render.js",
+  "js/09-actions-notes.js",
+  "js/10-media.js",
+  "js/11-notification-runtime.js",
+  "js/12-storage-helpers.js",
   "env.js",
   "manifest.webmanifest",
-  "assets/icon.svg",
   "assets/icon-192.png",
   "assets/icon-512.png"
 ];

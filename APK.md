@@ -32,10 +32,22 @@ El APK queda en:
 android\app\build\outputs\apk\debug\app-debug.apk
 ```
 
+La copia que puedes compartir está en:
+
+```text
+AppHorario-Actualizacion.apk
+```
+
 ## 3. Instalar en teléfono por cable USB
 
 Activa depuración USB en Android y ejecuta:
 
 ```powershell
 android-sdk\platform-tools\adb.exe install -r android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+O instala directamente la copia de actualización:
+
+```powershell
+android-sdk\platform-tools\adb.exe install -r AppHorario-Actualizacion.apk
 ```

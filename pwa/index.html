@@ -13,14 +13,39 @@
     <link rel="stylesheet" href="styles.css">
     <script src="env.js"></script>
     <script src="lib/http.js"></script>
-    <script src="app.js" defer></script>
+    <script src="js/01-core.js" defer></script>
+    <script src="js/02-events.js" defer></script>
+    <script src="js/03-sii-schedule.js" defer></script>
+    <script src="js/04-grades.js" defer></script>
+    <script src="js/05-sii-text-utils.js" defer></script>
+    <script src="js/06-settings-location.js" defer></script>
+    <script src="js/07-platform-notifications.js" defer></script>
+    <script src="js/08-render.js" defer></script>
+    <script src="js/09-actions-notes.js" defer></script>
+    <script src="js/10-media.js" defer></script>
+    <script src="js/11-notification-runtime.js" defer></script>
+    <script src="js/12-storage-helpers.js" defer></script>
+    <script src="js/13-security.js" defer></script>
+    <script src="js/14-moodle.js" defer></script>
   </head>
   <body>
-    <div class="app-shell">
-      <header class="topbar">
+    <div class="app-loader" id="appLoader" aria-live="polite">
+      <div class="loader-card">
+        <img src="assets/icon-512.png" alt="" class="loader-logo">
         <div>
           <p class="eyebrow">Mi estudio</p>
-          <h1 id="appTitle">AppHorario</h1>
+          <h2>AppHorario</h2>
+        </div>
+        <div class="loader-bar" aria-hidden="true"><span></span></div>
+      </div>
+    </div>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div>
+            <p class="eyebrow">Mi estudio</p>
+            <h1 id="appTitle">AppHorario</h1>
+          </div>
         </div>
         <div class="topbar-actions">
           <button class="icon-button" id="gradesButton" type="button" data-open-dialog="gradesDialog" aria-label="Ver calificaciones" title="Ver calificaciones">
@@ -35,6 +60,11 @@
         </div>
       </header>
 
+      <div class="offline-banner" id="offlineBanner" hidden aria-live="polite">
+        <i data-lucide="wifi-off"></i>
+        Sin conexión — los datos del SII no están disponibles
+      </div>
+
       <main>
         <section class="status-panel" aria-live="polite">
           <div>
@@ -44,6 +74,7 @@
           <div>
             <p class="muted" id="classStatusLabel">Siguiente clase</p>
             <strong id="nextClassText">Sin clases próximas</strong>
+            <span class="commute-summary" id="commuteSummary" hidden></span>
           </div>
         </section>
         <section class="smart-panel" id="smartPanel" hidden></section>
@@ -63,7 +94,7 @@
           </button>
           <button class="tab-button" type="button" data-tab="tasks">
             <i data-lucide="check-square"></i>
-            Tareas
+            Tareas<span class="tab-badge" id="tasksBadge" hidden></span>
           </button>
           <button class="tab-button" type="button" data-tab="settings">
             <i data-lucide="settings-2"></i>
@@ -85,10 +116,16 @@
         <section class="tab-panel" id="weekPanel">
           <div class="section-heading">
             <h2 id="weekHeading">Semana completa</h2>
-            <button class="text-button" type="button" id="weekViewButton">
-              <i data-lucide="calendar-range"></i>
-              Desde hoy
-            </button>
+            <div style="display:flex;gap:4px;align-items:center">
+              <button class="text-button" type="button" id="exportScheduleButton" title="Exportar horario como imagen">
+                <i data-lucide="image"></i>
+                Imagen
+              </button>
+              <button class="text-button" type="button" id="weekViewButton">
+                <i data-lucide="calendar-range"></i>
+                Desde hoy
+              </button>
+            </div>
           </div>
           <div class="week-grid" id="weekSchedule"></div>
         </section>
@@ -106,8 +143,14 @@
 
         <section class="tab-panel" id="tasksPanel">
           <div class="section-heading">
-            <h2>Tareas y recordatorios</h2>
-            <div class="heading-actions">
+            <div class="tasks-title-row">
+              <h2>Tareas y recordatorios</h2>
+              <div class="task-view-tabs">
+                <button class="task-view-tab active" data-task-view="manual" type="button">Mis tareas</button>
+                <button class="task-view-tab" data-task-view="moodle" type="button">Moodle<span class="task-view-badge" id="moodleImportedBadge"></span></button>
+              </div>
+            </div>
+            <div class="heading-actions task-toolbar" id="taskManualToolbar">
               <button class="text-button" type="button" data-open-dialog="examDialog">
                 <i data-lucide="graduation-cap"></i>
                 Examen
@@ -116,10 +159,29 @@
                 <i data-lucide="plus"></i>
                 Tarea
               </button>
+              <select class="task-filter-select" id="taskClassFilter" aria-label="Filtrar tareas por materia"></select>
             </div>
+            <div class="moodle-sub-toolbar" id="moodleSubToolbar" hidden>
+              <div class="sort-pills">
+                <button class="sort-pill active" data-moodle-sort="date" type="button">Por fecha</button>
+                <button class="sort-pill" data-moodle-sort="course" type="button">Por curso</button>
+              </div>
+              <button class="text-button tasks-moodle-btn" type="button"
+                      data-open-dialog="moodleDialog">
+                <i data-lucide="refresh-cw"></i>
+                Importar de Moodle
+              </button>
+            </div>
+          </div>
+          <div class="task-search-row">
+            <label class="task-search-label" aria-label="Buscar tareas">
+              <i data-lucide="search"></i>
+              <input class="task-search-input" id="taskSearch" type="search" placeholder="Buscar tarea…" autocomplete="off" maxlength="80">
+            </label>
           </div>
           <div class="exam-list" id="examList"></div>
           <div class="task-list" id="taskList"></div>
+          <div id="moodleImportedList" hidden></div>
         </section>
 
         <section class="tab-panel" id="settingsPanel">
@@ -134,6 +196,13 @@
                 <option value="light">Claro</option>
                 <option value="dark">Oscuro</option>
                 <option value="auto">Automático</option>
+              </select>
+            </label>
+            <label class="field">
+              Formato de hora
+              <select id="timeFormat">
+                <option value="24">24 horas</option>
+                <option value="12">AM/PM</option>
               </select>
             </label>
             <div class="color-settings">
@@ -158,15 +227,39 @@
               Minutos antes de iniciar clase
               <input id="classStartMinutes" type="number" min="1" max="120" step="1">
             </label>
-            <label class="field">
-              Sonido de notificación
-              <select id="notificationSound">
-                <option value="chime">Campana suave</option>
-                <option value="focus">Pulso de estudio</option>
-                <option value="digital">Digital claro</option>
-                <option value="silent">Solo vibración</option>
-              </select>
-            </label>
+            <details class="detail-disclosure sound-disclosure">
+              <summary>
+                Sonido para clases
+                <span class="sound-summary-value" id="notificationSoundSummary"></span>
+              </summary>
+              <div class="detail-disclosure-body sound-picker-section">
+                <div class="sound-picker" id="notificationSoundPicker" data-setting="notificationSound"></div>
+              </div>
+            </details>
+            <details class="detail-disclosure sound-disclosure">
+              <summary>
+                Sonido para tareas
+                <span class="sound-summary-value" id="taskNotificationSoundSummary"></span>
+              </summary>
+              <div class="detail-disclosure-body sound-picker-section">
+                <div class="sound-picker" id="taskNotificationSoundPicker" data-setting="taskNotificationSound"></div>
+              </div>
+            </details>
+            <!-- Hidden selects kept for settings binding compatibility -->
+            <select id="notificationSound" hidden></select>
+            <select id="taskNotificationSound" hidden></select>
+
+            <div class="miui-notice" id="miuiNotice" hidden>
+              <i data-lucide="info"></i>
+              <div>
+                <strong>Xiaomi / MIUI detectado</strong>
+                <p>En ajustes del teléfono ve a <em>Apps → AppHorario → Notificaciones</em> y activa <em>"Mostrar como banner"</em> con sonido y vibración. Sin esto las notificaciones flotantes no tendrán sonido.</p>
+                <button class="text-button small" type="button" id="openAppNotifSettings">
+                  <i data-lucide="settings"></i>
+                  Ir a ajustes de notificaciones
+                </button>
+              </div>
+            </div>
             <label class="toggle-row">
               <span>Preguntar si hay tarea antes de clase</span>
               <input id="taskPromptEnabled" type="checkbox">
@@ -175,6 +268,51 @@
               <span>Avisar antes de iniciar clase</span>
               <input id="classStartEnabled" type="checkbox">
             </label>
+            <label class="field-label" style="margin-top:8px">
+              Máx. grabaciones por clase
+              <input id="maxRecordingsPerClass" type="number" min="1" max="200" step="1" style="width:80px;margin-top:4px">
+            </label>
+            <details class="detail-disclosure settings-map">
+              <summary>Tiempo de llegada a la escuela</summary>
+              <div class="detail-disclosure-body">
+                <p class="settings-help">
+                  Guarda la ubicacion de tu escuela para ver cuantos minutos tardarias en llegar. La app solo pedira permiso de ubicacion si usas tu ubicacion actual o activas algun transporte.
+                </p>
+                <label class="field">
+                  Direccion de la escuela
+                  <input id="schoolLocationInput" placeholder="Tecnologico de Durango">
+                </label>
+                <div class="school-location-actions">
+                  <button class="text-button" type="button" id="searchSchoolAddressButton">
+                    <i data-lucide="search"></i>
+                    Establecer direccion
+                  </button>
+                  <button class="text-button" type="button" id="useCurrentLocationButton">
+                    <i data-lucide="map-pin"></i>
+                    Usar mi ubicacion actual como escuela
+                  </button>
+                </div>
+                <div class="address-results" id="schoolAddressResults"></div>
+                <p class="settings-help">
+                  Elige que transportes quieres mostrar. Si no seleccionas ninguno, no se calcula ni se pide ubicacion.
+                </p>
+                <div class="commute-mode-grid">
+                  <label><input id="commuteCarEnabled" type="checkbox"> Carro</label>
+                  <label><input id="commuteWalkEnabled" type="checkbox"> Caminando</label>
+                  <label><input id="commuteBikeEnabled" type="checkbox"> Bici</label>
+                  <label><input id="commuteBusEnabled" type="checkbox"> Camion</label>
+                </div>
+              </div>
+            </details>
+            <div class="storage-indicator" id="storageIndicator" hidden>
+              <p class="storage-label"><i data-lucide="hard-drive"></i> Almacenamiento</p>
+              <div class="storage-bar-wrap"><div class="storage-bar-fill" id="storageBarFill"></div></div>
+              <p class="storage-text muted" id="storageText"></p>
+              <button class="text-button storage-clean-btn" type="button" id="cleanOrphanBlobsButton">
+                <i data-lucide="trash-2"></i>
+                Limpiar archivos huérfanos
+              </button>
+            </div>
             <div class="settings-actions">
               <button class="text-button" type="button" id="siiLoginButton" data-open-dialog="siiLoginDialog">
                 <i data-lucide="download"></i>
@@ -194,8 +332,23 @@
                 <input id="importFile" type="file" accept="application/json">
               </label>
             </div>
+            <div class="settings-actions" style="margin-top:4px">
+              <button class="text-button" type="button" id="enablePinButton">
+                <i data-lucide="lock"></i>
+                Activar cifrado PIN
+              </button>
+              <button class="text-button" type="button" id="disablePinButton" hidden>
+                <i data-lucide="lock-open"></i>
+                Desactivar cifrado
+              </button>
+            </div>
             <p class="muted install-hint" id="siiStatus">SII escolar sin conectar.</p>
+            <button class="text-button" type="button" id="exportSiiLogButton" style="font-size:0.78rem;margin-top:2px">
+              <i data-lucide="bug"></i>
+              Exportar log de diagnóstico SII
+            </button>
             <p class="muted install-hint" id="installHint">Se puede instalar en el teléfono desde el navegador compatible.</p>
+            <p class="muted install-hint privacy-hint">Los datos (horario, tareas, notas) se guardan localmente en este dispositivo y no se envían a ningún servidor. Activa la pantalla de bloqueo del teléfono para mantenerlos privados.</p>
           </div>
         </section>
       </main>
@@ -313,11 +466,66 @@
             <input id="gradesPassword" type="password" inputmode="numeric" autocomplete="current-password" maxlength="4" required placeholder="4 dígitos">
           </label>
         </div>
-        <p class="muted sii-login-message" id="gradesMessage">Consulta tus parciales sin guardar tu contraseña en la app.</p>
+        <div class="remember-row">
+          <label class="toggle-label">
+            <input type="checkbox" id="gradesRemember">
+            Recordar mis datos
+          </label>
+          <button class="text-button small" type="button" id="gradesClearSaved" hidden>Olvidar</button>
+        </div>
+        <p class="muted sii-login-message" id="gradesMessage">Consulta tus parciales. Tus datos se guardan cifrados si tienes PIN activo.</p>
         <button class="primary-button" type="submit" id="gradesSubmitButton">Ver calificaciones</button>
       </form>
       <section class="detail-section inside-dialog">
         <div class="grades-list" id="gradesList"></div>
+      </section>
+    </dialog>
+
+    <dialog class="dialog wide" id="moodleDialog">
+      <form method="dialog" id="moodleForm">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Moodle ITD</p>
+            <h2>Tareas próximas</h2>
+          </div>
+          <button class="icon-button small" type="button"
+                  data-close-dialog="moodleDialog" aria-label="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <label class="field">
+          Correo institucional
+          <input id="moodleUsername" type="email" autocomplete="username"
+                 maxlength="80" required placeholder="23040989@itdurango.edu.mx">
+        </label>
+        <label class="field">
+          Contraseña
+          <input id="moodlePassword" type="password" autocomplete="current-password"
+                 maxlength="128" required placeholder="Tu contraseña de Moodle">
+        </label>
+        <div class="remember-row">
+          <label class="toggle-label">
+            <input type="checkbox" id="moodleRemember">
+            Recordar mis datos
+          </label>
+          <button class="text-button small" type="button" id="moodleClearSaved" hidden>Olvidar</button>
+        </div>
+        <p class="muted sii-login-message" id="moodleMessage">
+          Inicia sesión con tu correo institucional de Moodle.
+        </p>
+        <button class="primary-button" type="submit" id="moodleSubmitButton">
+          Ver tareas próximas
+        </button>
+      </form>
+      <section class="detail-section inside-dialog" id="moodleResultsSection" hidden>
+        <div class="moodle-dialog-sort-bar">
+          <button class="sort-pill active" data-moodle-dialog-sort="date" type="button">Por fecha</button>
+          <button class="sort-pill" data-moodle-dialog-sort="course" type="button">Por curso</button>
+          <button class="text-button small" type="button" id="moodleImportAllButton" style="margin-left:auto">
+            <i data-lucide="check-check"></i> Importar todas
+          </button>
+        </div>
+        <div id="moodleAssignmentsList"></div>
       </section>
     </dialog>
 
@@ -346,11 +554,15 @@
             <select id="taskClass"></select>
           </label>
           <label class="field">
-            Fecha
+            Fecha de entrega
             <input id="taskDate" type="date" required>
           </label>
           <label class="field">
-            Hora
+            Hora de entrega
+            <input id="taskDueTime" type="time" required>
+          </label>
+          <label class="field">
+            Hora de recordatorio
             <input id="taskTime" type="time" required>
           </label>
         </section>
@@ -442,29 +654,39 @@
             <i data-lucide="graduation-cap"></i>
             Examen
           </button>
+          <button class="text-button" type="button" id="detailTakePhoto">
+            <i data-lucide="camera"></i>
+            Foto pizarron
+          </button>
           <button class="text-button" type="button" id="detailEditClass">
             <i data-lucide="pencil"></i>
             Editar clase
           </button>
         </div>
-        <section class="detail-section">
-          <h3>Exámenes de esta clase</h3>
-          <div class="detail-exam-list" id="classDetailExams"></div>
-        </section>
-        <section class="detail-section">
-          <h3>Tareas de esta clase</h3>
-          <div class="detail-task-list" id="classDetailTasks"></div>
-        </section>
         <input type="hidden" id="noteClassId">
-        <label class="field">
-          Nota de hoy
-          <textarea id="noteText" rows="5" maxlength="1000" placeholder="Escribe lo importante de la clase..."></textarea>
-        </label>
-        <button class="primary-button" type="submit">Guardar nota con fecha de hoy</button>
+        <input id="boardPhotoInput" type="file" accept="image/*" capture="environment" hidden>
+        <details class="detail-disclosure" open>
+          <summary>Nota de hoy</summary>
+          <div class="detail-disclosure-body">
+            <label class="field">
+              Nota de hoy
+              <textarea id="noteText" rows="5" maxlength="1000" placeholder="Escribe lo importante de la clase..."></textarea>
+            </label>
+            <button class="primary-button" type="submit">Guardar nota con fecha de hoy</button>
+          </div>
+        </details>
+        <details class="detail-disclosure">
+          <summary>Examenes de esta clase</summary>
+          <div class="detail-exam-list detail-disclosure-body" id="classDetailExams"></div>
+        </details>
+        <details class="detail-disclosure">
+          <summary>Tareas de esta clase</summary>
+          <div class="detail-task-list detail-disclosure-body" id="classDetailTasks"></div>
+        </details>
       </form>
-      <section class="detail-section inside-dialog audio-section">
-        <div class="section-heading compact-heading">
-          <h3>Audio de la clase</h3>
+      <details class="detail-disclosure inside-dialog audio-section">
+        <summary>Audio de la clase</summary>
+        <div class="detail-disclosure-body">
           <div class="audio-actions">
             <button class="text-button" type="button" id="recordAudioButton">
               <i data-lucide="mic"></i>
@@ -475,14 +697,87 @@
               Detener
             </button>
           </div>
+          <p class="muted" id="recordingStatus">Sin grabación activa.</p>
+          <div class="audio-history" id="audioHistory"></div>
         </div>
-        <p class="muted" id="recordingStatus">Sin grabación activa.</p>
-        <div class="audio-history" id="audioHistory"></div>
-      </section>
-      <section class="detail-section inside-dialog">
-        <h3>Historial de notas</h3>
-      </section>
-      <div class="notes-history" id="notesHistory"></div>
+      </details>
+      <details class="detail-disclosure inside-dialog photo-section">
+        <summary>Fotos del pizarron</summary>
+        <div class="photo-gallery detail-disclosure-body" id="photoGallery"></div>
+      </details>
+      <details class="detail-disclosure inside-dialog">
+        <summary>Historial de notas</summary>
+        <div class="notes-history detail-disclosure-body" id="notesHistory"></div>
+      </details>
     </dialog>
+
+    <dialog class="dialog map-dialog" id="schoolMapDialog">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Ubicacion escuela</p>
+          <h2>Establecer direccion</h2>
+        </div>
+        <button class="icon-button small" type="button" data-close-dialog="schoolMapDialog" aria-label="Cerrar">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="map-search-panel">
+        <p class="settings-help map-explainer">
+          Busca tu escuela o centra el mapa con tu ubicacion actual. El permiso de ubicacion solo se pedira al tocar el boton de ubicacion.
+        </p>
+        <label class="field">
+          Direccion
+          <input id="mapAddressSearchInput" placeholder="Tecnologico de Durango">
+        </label>
+        <button class="text-button" type="button" id="mapAddressSearchButton">
+          <i data-lucide="search"></i>
+          Buscar
+        </button>
+        <button class="text-button" type="button" id="centerMapOnCurrentLocationButton">
+          <i data-lucide="map-pin"></i>
+          Mi ubicacion
+        </button>
+        <div class="address-results map-address-results" id="mapAddressResults"></div>
+      </div>
+      <div class="map-picker" id="schoolMapPicker">
+        <div class="map-tile-layer" id="schoolMapTileLayer"></div>
+        <div class="map-crosshair" aria-hidden="true"></div>
+        <div class="map-marker" id="schoolMapMarker" aria-hidden="true">
+          <i data-lucide="map-pin"></i>
+        </div>
+        <div class="map-controls">
+          <button class="icon-button small" type="button" id="mapZoomInButton" aria-label="Acercar">+</button>
+          <button class="icon-button small" type="button" id="mapZoomOutButton" aria-label="Alejar">-</button>
+        </div>
+      </div>
+      <div class="map-footer">
+        <p class="muted" id="mapSelectedLocationText">Sin ubicacion seleccionada</p>
+        <button class="primary-button" type="button" id="confirmSchoolLocationButton">
+          <i data-lucide="map-pin"></i>
+          Guardar ubicacion
+        </button>
+      </div>
+    </dialog>
+
+    <dialog class="dialog photo-viewer-dialog" id="photoViewerDialog">
+      <div class="photo-viewer-header">
+        <div>
+          <p class="eyebrow">Pizarron</p>
+          <h2>Foto de clase</h2>
+        </div>
+        <button class="icon-button small" type="button" data-close-dialog="photoViewerDialog" aria-label="Cerrar">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <img id="photoViewerImage" class="photo-viewer-image" alt="Foto del pizarron">
+      <div class="photo-viewer-actions">
+        <p class="muted" id="photoViewerDate"></p>
+        <button class="text-button" type="button" id="photoViewerDownloadButton">
+          <i data-lucide="download"></i>
+          Descargar
+        </button>
+      </div>
+    </dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>
 </html>
