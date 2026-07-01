@@ -24,3 +24,10 @@ pwa/env.js
 # Local IDE/system files
 .DS_Store
 Thumbs.db
+.gstack/
+
+# QA artifacts and APKs
+*.apk
+qa_*.png
+graphify-out/
+"CLAUDE menos tokens.md"
