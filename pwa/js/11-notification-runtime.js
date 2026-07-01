@@ -134,5 +134,5 @@ function notificationIdFromKey(key) {
     hash = ((hash << 5) - hash) + key.charCodeAt(index);
     hash |= 0;
   }
-  return (Math.abs(hash) % 2147483647) || Math.floor(Date.now() % 2147483647);
+  return (Math.abs(hash) % 2147483646) + 1;
 }

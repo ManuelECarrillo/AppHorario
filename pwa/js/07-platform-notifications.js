@@ -287,7 +287,7 @@ async function rescheduleNativeNotifications() {
   }
 
   state.nativeNotificationIds = notifications.map((notification) => notification.id);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  saveState();
 }
 
 async function cancelPendingNativeNotifications(localNotifications) {
@@ -366,6 +366,8 @@ function buildNativeNotificationSchedule(now) {
 
     state.tasks.forEach((task) => {
       if (!isTaskDueOn(task, day) || isTaskComplete(task, dateValue)) return;
+      const reminderAt = task.reminderTime || task.time;
+      if (!reminderAt) return;
       const isRecurring = task.repeat && task.repeat !== "none";
       if (isRecurring) {
         recurringTaskCount[task.id] = (recurringTaskCount[task.id] || 0) + 1;
@@ -375,7 +377,7 @@ function buildNativeNotificationSchedule(now) {
         key: `${dateValue}:task:${task.id}`,
         title: "Recordatorio",
         body: task.title,
-        at: dateTimeFromParts(dateValue, task.reminderTime || task.time),
+        at: dateTimeFromParts(dateValue, reminderAt),
         extra: { taskId: task.id, classId: task.classId },
         soundKey: getTaskNotificationSoundKey()
       });
