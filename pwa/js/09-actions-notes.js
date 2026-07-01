@@ -264,6 +264,16 @@ function deleteClass(id) {
   });
 }
 
+function syncClassTrigger(selectId) {
+  const triggerId = selectId === "taskClass" ? "taskClassTrigger" : "examClassTrigger";
+  const trigger = document.getElementById(triggerId);
+  if (!trigger) return;
+  const val = document.getElementById(selectId)?.value || "";
+  const item = val ? getClassById(val) : null;
+  trigger.textContent = item ? getClassDisplayName(item) : "Sin clase";
+  if (trigger.childElementCount === 0) trigger.insertAdjacentHTML("beforeend", "");
+}
+
 function resetTaskForm() {
   $("#taskForm").reset();
   $("#taskId").value = "";
@@ -273,6 +283,7 @@ function resetTaskForm() {
   $("#taskPriority").value = "normal";
   $("#taskRepeat").value = "none";
   renderTaskClassOptions();
+  syncClassTrigger("taskClass");
 }
 
 function saveTask(event) {
@@ -336,6 +347,7 @@ function editTask(id) {
   $("#taskTitle").value = task.title;
   $("#taskDetails").value = task.details || "";
   $("#taskClass").value = task.classId || "";
+  syncClassTrigger("taskClass");
   $("#taskDate").value = task.date;
   $("#taskDueTime").value = task.dueTime || task.time;
   $("#taskTime").value = task.reminderTime || task.time;
@@ -390,6 +402,7 @@ function resetExamForm() {
   $("#examTime").value = "08:00";
   $("#examStudyTime").value = "18:00";
   renderExamClassOptions();
+  syncClassTrigger("examClass");
   $$('input[name="studyDay"]').forEach((input) => input.checked = [7, 3, 1].includes(Number(input.value)));
 }
 
@@ -463,6 +476,7 @@ function editExam(id) {
   $("#examId").value = exam.id;
   $("#examTitle").value = exam.title;
   $("#examClass").value = exam.classId || "";
+  syncClassTrigger("examClass");
   $("#examDate").value = exam.date;
   $("#examTime").value = exam.time;
   $("#examStudyTime").value = exam.studyTime || "18:00";
@@ -565,6 +579,7 @@ function addTaskFromDetail() {
   replaceDialog("notesDialog", "taskDialog", () => {
     resetTaskForm();
     $("#taskClass").value = classId;
+    syncClassTrigger("taskClass");
   });
 }
 
@@ -573,6 +588,7 @@ function addExamFromDetail() {
   replaceDialog("notesDialog", "examDialog", () => {
     resetExamForm();
     $("#examClass").value = classId;
+    syncClassTrigger("examClass");
   });
 }
 
@@ -593,6 +609,7 @@ function fillQuickTaskForm(classId) {
   const item = getClassById(classId);
   resetTaskForm();
   $("#taskClass").value = classId || "";
+  syncClassTrigger("taskClass");
   $("#taskTitle").value = item ? `Tarea de ${getClassDisplayName(item)}` : "";
   $("#taskPriority").value = "normal";
   $("#taskRepeat").value = "none";

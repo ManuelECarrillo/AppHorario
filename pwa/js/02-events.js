@@ -35,6 +35,35 @@ function bindTaskFilters() {
   if (!elements.taskClassFilter) return;
   elements.taskClassFilter.addEventListener("change", renderTasks);
 
+  const btn = document.getElementById("taskFilterBtn");
+  const dropdown = document.getElementById("taskFilterDropdown");
+
+  if (btn && dropdown) {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const opening = dropdown.hidden;
+      dropdown.hidden = !opening;
+      btn.setAttribute("aria-expanded", String(opening));
+    });
+
+    dropdown.addEventListener("click", (e) => {
+      const opt = e.target.closest("[data-filter-class]");
+      if (!opt) return;
+      elements.taskClassFilter.value = opt.dataset.filterClass;
+      dropdown.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      renderTaskFilterOptions();
+      renderTasks();
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!dropdown.hidden && !btn.contains(e.target) && !dropdown.contains(e.target)) {
+        dropdown.hidden = true;
+        btn.setAttribute("aria-expanded", "false");
+      }
+    });
+  }
+
   const searchInput = document.getElementById("taskSearch");
   if (searchInput) {
     searchInput.addEventListener("input", renderTasks);
@@ -154,6 +183,27 @@ function bindNativeBackButton() {
   });
 
   if (stateListener && typeof stateListener.catch === "function") stateListener.catch(() => undefined);
+}
+
+function bindClassPicker() {
+  const taskTrigger = document.getElementById("taskClassTrigger");
+  const examTrigger = document.getElementById("examClassTrigger");
+  const pickerList = document.getElementById("classPickerList");
+
+  if (taskTrigger) taskTrigger.addEventListener("click", () => openClassPicker("taskClass"));
+  if (examTrigger) examTrigger.addEventListener("click", () => openClassPicker("examClass"));
+
+  if (pickerList) {
+    pickerList.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-pick-class]");
+      if (!btn || !_classPickerTarget) return;
+      const classId = btn.dataset.pickClass;
+      const selectEl = document.getElementById(_classPickerTarget);
+      if (selectEl) selectEl.value = classId;
+      syncClassTrigger(_classPickerTarget);
+      closeDialog("classPickerDialog");
+    });
+  }
 }
 
 function bindForms() {

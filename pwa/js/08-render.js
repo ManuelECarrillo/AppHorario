@@ -200,17 +200,63 @@ function renderTheme() {
   const resolvedMode = mode === "auto" ? (prefersDark ? "dark" : "light") : mode;
   const root = document.documentElement;
   const primary = state.settings.primaryColor || "#216869";
-  const accent = state.settings.accentColor || "#c7503d";
   const background = state.settings.backgroundColor || "#f5f7fb";
 
   root.dataset.theme = resolvedMode;
   root.style.setProperty("--primary", primary);
   root.style.setProperty("--primary-dark", darkenColor(primary, 24));
-  root.style.setProperty("--accent", accent);
-  root.style.setProperty("--bg", resolvedMode === "dark" ? "#0f1720" : background);
+  root.style.setProperty("--accent", primary);
+  root.style.setProperty("--bg", resolvedMode === "light" ? background : resolvedMode === "amoled" ? "#000000" : "#0f1720");
   root.style.setProperty("--theme-wash", hexToRgb(primary));
+
+  const bgColorField = document.getElementById("bgColorField");
+  if (bgColorField) bgColorField.hidden = resolvedMode !== "light";
+
   const themeMeta = document.querySelector('meta[name="theme-color"]');
-  if (themeMeta) themeMeta.setAttribute("content", resolvedMode === "dark" ? "#0f1720" : background);
+  if (themeMeta) themeMeta.setAttribute("content", resolvedMode === "light" ? background : resolvedMode === "amoled" ? "#000000" : "#0f1720");
+}
+
+const THEME_PRESETS = [
+  { label: "Esmeralda", primary: "#216869", bg: "#f5f7fb" },
+  { label: "Índigo",    primary: "#4f46e5", bg: "#f0f0ff" },
+  { label: "Coral",     primary: "#e05c4b", bg: "#fff5f5" },
+  { label: "Ámbar",     primary: "#b45309", bg: "#fefce8" },
+  { label: "Rosa",      primary: "#be185d", bg: "#fdf2f8" },
+  { label: "Pizarra",   primary: "#475569", bg: "#f8fafc" },
+];
+
+function renderThemePresets() {
+  const container = document.getElementById("themePresets");
+  if (!container) return;
+  const current = state.settings.primaryColor || "#216869";
+  container.innerHTML = THEME_PRESETS.map((preset) => `
+    <button class="theme-preset-btn ${preset.primary.toLowerCase() === current.toLowerCase() ? "active" : ""}"
+      type="button" title="${preset.label}"
+      data-preset-primary="${preset.primary}" data-preset-bg="${preset.bg}"
+      style="background:${preset.primary}">
+    </button>
+  `).join("");
+}
+
+function bindThemePresets() {
+  const container = document.getElementById("themePresets");
+  if (!container) return;
+  container.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-preset-primary]");
+    if (!btn) return;
+    state.settings.primaryColor = btn.dataset.presetPrimary;
+    state.settings.backgroundColor = btn.dataset.presetBg;
+    state.settings.accentColor = btn.dataset.presetPrimary;
+    const pc = document.getElementById("primaryColor");
+    const bc = document.getElementById("backgroundColor");
+    const ac = document.getElementById("accentColor");
+    if (pc) pc.value = btn.dataset.presetPrimary;
+    if (bc) bc.value = btn.dataset.presetBg;
+    if (ac) ac.value = btn.dataset.presetPrimary;
+    saveState();
+    renderTheme();
+    renderThemePresets();
+  });
 }
 
 function tick() {
@@ -280,6 +326,14 @@ function updateCommuteSummary(force = false) {
 }
 
 function renderCommuteSummary(routeTimes) {
+  if (routeTimes.length) {
+    const cache = {};
+    routeTimes.forEach((r) => { cache[r.key] = r.minutes; });
+    state.commuteMinutesCache = { ...(state.commuteMinutesCache || {}), ...cache };
+    saveState();
+    updateCommuteNotifyStatus();
+  }
+
   if (!routeTimes.length) {
     elements.commuteSummary.hidden = true;
     elements.commuteSummary.innerHTML = "";
@@ -367,6 +421,22 @@ function getRouteProfile(mode) {
     bus: "driving"
   };
   return profiles[mode] || null;
+}
+
+function updateCommuteNotifyStatus() {
+  const el = document.getElementById("commuteNotifyStatus");
+  if (!el) return;
+  const cache = state.commuteMinutesCache || {};
+  const modes = getEnabledCommuteModes();
+  const times = modes.map((m) => cache[m.key]).filter(Boolean);
+  if (!times.length) {
+    el.textContent = "Sin datos de traslado. Abre el panel Hoy para actualizarlos.";
+    return;
+  }
+  const travel = Math.min(...times);
+  const buffer = Number(state.settings.classStartCommuteBuffer ?? 5);
+  const modeLabels = modes.filter((m) => cache[m.key]).map((m) => `${m.label} ${cache[m.key]} min`).join(", ");
+  el.textContent = `Avisará ${travel + buffer} min antes (${modeLabels}${buffer ? ` + ${buffer} min margen` : ""})`;
 }
 
 function getEnabledCommuteModes() {
@@ -719,7 +789,7 @@ function renderTasks() {
 
   const badge = document.getElementById("tasksBadge");
   if (badge) {
-    const allPending = manualTasks.filter((task) => !isTaskComplete(task, today));
+    const allPending = state.tasks.filter((task) => !isTaskComplete(task, today));
     const count = allPending.length;
     badge.textContent = count > 99 ? "99+" : String(count);
     badge.hidden = count === 0;
@@ -846,13 +916,52 @@ function renderTaskFilterOptions() {
   if (!elements.taskClassFilter) return;
 
   const current = elements.taskClassFilter.value;
+  const validId = state.classes.some((item) => item.id === current) ? current : "";
+
   elements.taskClassFilter.innerHTML = `<option value="">Todas</option>` + state.classes
     .slice()
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => getClassDisplayName(a).localeCompare(getClassDisplayName(b)))
     .map((item) => `<option value="${item.id}">${escapeHtml(getClassDisplayName(item))}</option>`)
     .join("");
+  elements.taskClassFilter.value = validId;
 
-  elements.taskClassFilter.value = state.classes.some((item) => item.id === current) ? current : "";
+  const active = elements.taskClassFilter.value;
+  const sorted = state.classes.slice().sort((a, b) => getClassDisplayName(a).localeCompare(getClassDisplayName(b)));
+
+  // Update trigger button
+  const btn = document.getElementById("taskFilterBtn");
+  const dot = document.getElementById("taskFilterDot");
+  const label = document.getElementById("taskFilterLabel");
+  if (btn && label) {
+    const sel = sorted.find((item) => item.id === active);
+    if (sel) {
+      label.textContent = getClassDisplayName(sel);
+      if (dot) { dot.style.background = sel.color || DEFAULT_CLASS_COLOR; dot.style.display = ""; }
+      btn.classList.add("active");
+    } else {
+      label.textContent = "Todas";
+      if (dot) dot.style.display = "none";
+      btn.classList.remove("active");
+    }
+  }
+
+  // Render dropdown list
+  const dropdown = document.getElementById("taskFilterDropdown");
+  if (!dropdown) return;
+  const checkSvg = `<svg class="option-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+  dropdown.innerHTML = [
+    `<button class="task-filter-option ${!active ? "active" : ""}" type="button" data-filter-class="">
+      <span class="option-name">Todas las clases</span>
+      ${!active ? checkSvg : ""}
+    </button>`
+  ].concat(
+    sorted.map((item) => `
+      <button class="task-filter-option ${item.id === active ? "active" : ""}" type="button" data-filter-class="${item.id}">
+        <span class="option-dot" style="background:${item.color || DEFAULT_CLASS_COLOR}"></span>
+        <span class="option-name">${escapeHtml(getClassDisplayName(item))}</span>
+        ${item.id === active ? checkSvg : ""}
+      </button>`)
+  ).join("");
 }
 
 function renderExamClassOptions() {
@@ -870,14 +979,26 @@ function exportScheduleImage() {
     state.classes.filter((c) => c.days.includes(d)).sort((a, b) => a.start.localeCompare(b.start))
   );
 
+  // Determine visible time range from actual classes, rounded to hours
+  const allMins = state.classes.flatMap((c) => [timeToMinutes(c.start), timeToMinutes(c.end)]);
+  const rawStart = allMins.length ? Math.min(...allMins) : 7 * 60;
+  const rawEnd = allMins.length ? Math.max(...allMins) : 21 * 60;
+  const startHour = Math.max(0, Math.floor(rawStart / 60));
+  const endHour = Math.min(24, Math.ceil(rawEnd / 60));
+  const dayStart = startHour * 60;
+  const dayEnd = endHour * 60;
+  const totalMins = dayEnd - dayStart;
+
   const SCALE = 2;
-  const COL_W = 100;
+  const TIME_COL_W = 34;
+  const COL_W = 96;
   const HEADER_H = 36;
-  const ROW_H = 52;
-  const PAD = 4;
-  const maxRows = Math.max(1, ...classesByDay.map((c) => c.length));
-  const W = (COL_W * days.length + 1) * SCALE;
-  const H = (HEADER_H + maxRows * ROW_H + 20) * SCALE;
+  const PAD = 3;
+  const PX_PER_MIN = 1.1;
+  const scheduleH = Math.ceil(totalMins * PX_PER_MIN);
+  const totalW = TIME_COL_W + COL_W * days.length + 1;
+  const W = totalW * SCALE;
+  const H = (HEADER_H + scheduleH + 20) * SCALE;
 
   const canvas = document.createElement("canvas");
   canvas.width = W;
@@ -885,39 +1006,69 @@ function exportScheduleImage() {
   const ctx = canvas.getContext("2d");
   ctx.scale(SCALE, SCALE);
 
-  const totalW = COL_W * days.length + 1;
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#f5f7fb";
   ctx.fillRect(0, 0, totalW, H / SCALE);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(TIME_COL_W, HEADER_H, totalW - TIME_COL_W, scheduleH);
 
-  ctx.font = "bold 11px system-ui, sans-serif";
+  // Hour gridlines and labels
+  for (let hour = startHour; hour <= endHour; hour++) {
+    const y = HEADER_H + (hour * 60 - dayStart) * PX_PER_MIN;
+    ctx.strokeStyle = "#dde2ec";
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(TIME_COL_W, y);
+    ctx.lineTo(totalW, y);
+    ctx.stroke();
+
+    ctx.fillStyle = "#9aa0b0";
+    ctx.font = "8px system-ui, sans-serif";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${String(hour).padStart(2, "0")}:00`, TIME_COL_W - 4, y);
+  }
+
+  // Day column headers
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-
   days.forEach((_, i) => {
-    const x = i * COL_W;
+    const x = TIME_COL_W + i * COL_W;
     ctx.fillStyle = "#1a2030";
     ctx.fillRect(x, 0, COL_W, HEADER_H);
     ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 11px system-ui, sans-serif";
     ctx.fillText(dayNames[i], x + COL_W / 2, HEADER_H / 2);
 
-    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    // Column separator
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, HEADER_H);
     ctx.stroke();
+
+    // Thin vertical column divider in schedule area
+    ctx.strokeStyle = "#e8ecf4";
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, HEADER_H);
+    ctx.lineTo(x, HEADER_H + scheduleH);
+    ctx.stroke();
   });
 
-  ctx.font = "700 9.5px system-ui, sans-serif";
+  // Class blocks positioned by actual time
   classesByDay.forEach((classes, di) => {
-    classes.forEach((cls, ri) => {
-      const x = di * COL_W + PAD;
-      const y = HEADER_H + ri * ROW_H + PAD;
+    classes.forEach((cls) => {
+      const startMin = timeToMinutes(cls.start);
+      const endMin = timeToMinutes(cls.end);
+      const x = TIME_COL_W + di * COL_W + PAD;
+      const y = HEADER_H + (startMin - dayStart) * PX_PER_MIN + PAD;
       const bw = COL_W - PAD * 2;
-      const bh = ROW_H - PAD * 2;
+      const bh = Math.max(16, (endMin - startMin) * PX_PER_MIN - PAD * 2);
       const color = cls.color || DEFAULT_CLASS_COLOR;
+      const radius = Math.min(6, bh / 2);
 
       ctx.fillStyle = color;
-      const radius = 6;
       ctx.beginPath();
       ctx.moveTo(x + radius, y);
       ctx.lineTo(x + bw - radius, y);
@@ -935,16 +1086,24 @@ function exportScheduleImage() {
       ctx.textAlign = "center";
       const name = getClassDisplayName(cls);
       const nameShort = name.length > 14 ? name.slice(0, 13) + "…" : name;
-      ctx.font = "bold 9.5px system-ui, sans-serif";
-      ctx.fillText(nameShort, x + bw / 2, y + bh / 2 - 7);
-      ctx.font = "9px system-ui, sans-serif";
-      ctx.fillText(formatDisplayTimeRange(cls.start, cls.end), x + bw / 2, y + bh / 2 + 7);
+      if (bh >= 28) {
+        ctx.font = "bold 9.5px system-ui, sans-serif";
+        ctx.textBaseline = "middle";
+        ctx.fillText(nameShort, x + bw / 2, y + bh / 2 - 7);
+        ctx.font = "8.5px system-ui, sans-serif";
+        ctx.fillText(formatDisplayTimeRange(cls.start, cls.end), x + bw / 2, y + bh / 2 + 7);
+      } else {
+        ctx.font = "bold 8.5px system-ui, sans-serif";
+        ctx.textBaseline = "middle";
+        ctx.fillText(nameShort, x + bw / 2, y + bh / 2);
+      }
     });
   });
 
-  ctx.fillStyle = "#888";
+  ctx.fillStyle = "#9aa0b0";
   ctx.font = "8px system-ui, sans-serif";
   ctx.textAlign = "right";
+  ctx.textBaseline = "alphabetic";
   ctx.fillText(state.settings.appTitle || "AppHorario", totalW - 4, H / SCALE - 6);
 
   canvas.toBlob((blob) => {
@@ -957,4 +1116,65 @@ function exportScheduleImage() {
 function bindExportSchedule() {
   const btn = document.getElementById("exportScheduleButton");
   if (btn) btn.addEventListener("click", exportScheduleImage);
+}
+
+function showConfirmDialog(title, message, options = {}) {
+  return new Promise((resolve) => {
+    const dialog = document.getElementById("confirmDialog");
+    const titleEl = document.getElementById("confirmTitle");
+    const msgEl = document.getElementById("confirmMessage");
+    const okBtn = document.getElementById("confirmOkButton");
+    const cancelBtn = document.getElementById("confirmCancelButton");
+    if (!dialog) { resolve(options.alertOnly ? true : false); return; }
+
+    titleEl.textContent = title;
+    msgEl.textContent = message || "";
+    msgEl.hidden = !message;
+    okBtn.textContent = options.confirmText || "Aceptar";
+    cancelBtn.textContent = options.cancelText || "Cancelar";
+    cancelBtn.hidden = Boolean(options.alertOnly);
+
+    function finish(result) { resolve(result); }
+
+    function onOk() { dialog.close(); finish(true); }
+    function onCancel() { dialog.close(); finish(false); }
+    function onClose() { finish(false); }
+
+    okBtn.addEventListener("click", onOk, { once: true });
+    cancelBtn.addEventListener("click", onCancel, { once: true });
+    dialog.addEventListener("close", onClose, { once: true });
+    dialog.showModal();
+  });
+}
+
+let _classPickerTarget = "";
+
+function openClassPicker(targetSelectId) {
+  _classPickerTarget = targetSelectId;
+  const list = document.getElementById("classPickerList");
+  if (!list) return;
+
+  const currentVal = document.getElementById(targetSelectId)?.value || "";
+
+  const noClass = `
+    <button class="picker-option ${!currentVal ? "active" : ""}" type="button" data-pick-class="">
+      <span class="picker-dot" style="background:var(--muted)"></span>
+      <div class="picker-option-label"><strong>Sin clase</strong></div>
+    </button>`;
+
+  const classOptions = state.classes
+    .slice()
+    .sort((a, b) => getClassDisplayName(a).localeCompare(getClassDisplayName(b)))
+    .map((item) => `
+      <button class="picker-option ${item.id === currentVal ? "active" : ""}" type="button" data-pick-class="${item.id}">
+        <span class="picker-dot" style="background:${item.color || DEFAULT_CLASS_COLOR}"></span>
+        <div class="picker-option-label">
+          <strong>${escapeHtml(getClassDisplayName(item))}</strong>
+          <span class="muted">${escapeHtml(formatDisplayTimeRange(item.start, item.end))}</span>
+        </div>
+      </button>`).join("");
+
+  list.innerHTML = noClass + classOptions;
+  renderIcons();
+  openDialog("classPickerDialog");
 }

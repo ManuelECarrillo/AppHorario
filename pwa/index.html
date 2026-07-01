@@ -159,7 +159,15 @@
                 <i data-lucide="plus"></i>
                 Tarea
               </button>
-              <select class="task-filter-select" id="taskClassFilter" aria-label="Filtrar tareas por materia"></select>
+              <div class="task-filter-wrapper" id="taskFilterWrapper">
+                <button class="task-filter-btn" id="taskFilterBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span class="task-filter-dot" id="taskFilterDot"></span>
+                  <span class="task-filter-label" id="taskFilterLabel">Todas</span>
+                  <i data-lucide="chevron-down" class="task-filter-chevron"></i>
+                </button>
+                <div class="task-filter-dropdown" id="taskFilterDropdown" hidden role="listbox" aria-label="Filtrar por clase"></div>
+              </div>
+              <select id="taskClassFilter" hidden aria-label="Filtrar tareas por materia"></select>
             </div>
             <div class="moodle-sub-toolbar" id="moodleSubToolbar" hidden>
               <div class="sort-pills">
@@ -190,43 +198,54 @@
               Título grande
               <input id="appTitleInput" maxlength="32" placeholder="AppHorario">
             </label>
-            <label class="field">
-              Modo
-              <select id="themeMode">
+            <div class="field">
+              <span class="field-label-text">Modo</span>
+              <div class="segmented-control" id="themeModeControl" role="group" aria-label="Modo de pantalla">
+                <button class="seg-btn" type="button" data-seg-value="light">Claro</button>
+                <button class="seg-btn" type="button" data-seg-value="dark">Oscuro</button>
+                <button class="seg-btn" type="button" data-seg-value="amoled">Negro</button>
+                <button class="seg-btn" type="button" data-seg-value="auto">Auto</button>
+              </div>
+              <select id="themeMode" hidden>
                 <option value="light">Claro</option>
                 <option value="dark">Oscuro</option>
+                <option value="amoled">Negro (AMOLED)</option>
                 <option value="auto">Automático</option>
               </select>
-            </label>
-            <label class="field">
-              Formato de hora
-              <select id="timeFormat">
+            </div>
+            <div class="field">
+              <span class="field-label-text">Formato de hora</span>
+              <div class="segmented-control" id="timeFormatControl" role="group" aria-label="Formato de hora">
+                <button class="seg-btn" type="button" data-seg-value="24">24 h</button>
+                <button class="seg-btn" type="button" data-seg-value="12">AM · PM</button>
+              </div>
+              <select id="timeFormat" hidden>
                 <option value="24">24 horas</option>
                 <option value="12">AM/PM</option>
               </select>
-            </label>
-            <div class="color-settings">
-              <label class="field color-field">
-                Principal
-                <input id="primaryColor" type="color">
-              </label>
-              <label class="field color-field">
-                Acento
-                <input id="accentColor" type="color">
-              </label>
-              <label class="field color-field">
-                Fondo
-                <input id="backgroundColor" type="color">
-              </label>
+            </div>
+            <div class="color-settings-block">
+              <p class="field-label-text">Personalización de colores</p>
+              <div class="theme-presets" id="themePresets" role="group" aria-label="Temas rápidos"></div>
+              <div class="color-row">
+                <label class="color-swatch-field">
+                  <span>Color principal</span>
+                  <p class="muted" style="font-size:0.75rem;margin:2px 0 4px">Botones, acentos, toggles</p>
+                  <input id="primaryColor" type="color">
+                </label>
+                <label class="color-swatch-field" id="bgColorField">
+                  <span>Fondo (modo Claro)</span>
+                  <p class="muted" style="font-size:0.75rem;margin:2px 0 4px">Fondo de pantalla en modo Claro</p>
+                  <input id="backgroundColor" type="color">
+                </label>
+              </div>
+              <input id="accentColor" type="color" hidden>
             </div>
             <label class="field compact">
               Minutos antes para preguntar tareas
               <input id="taskPromptMinutes" type="number" min="1" max="120" step="1">
             </label>
-            <label class="field compact">
-              Minutos antes de iniciar clase
-              <input id="classStartMinutes" type="number" min="1" max="120" step="1">
-            </label>
+            <input id="classStartMinutes" type="number" min="1" max="120" step="1" hidden>
             <details class="detail-disclosure sound-disclosure">
               <summary>
                 Sonido para clases
@@ -264,10 +283,37 @@
               <span>Preguntar si hay tarea antes de clase</span>
               <input id="taskPromptEnabled" type="checkbox">
             </label>
-            <label class="toggle-row">
-              <span>Avisar antes de iniciar clase</span>
-              <input id="classStartEnabled" type="checkbox">
-            </label>
+            <div class="notify-timing-block">
+              <label class="toggle-row">
+                <span>Avisar antes de iniciar clase</span>
+                <input id="classStartEnabled" type="checkbox">
+              </label>
+              <div id="classStartOptions" class="notify-sub" hidden>
+                <label class="notify-mode-row" for="classStartModeManual">
+                  <input type="radio" id="classStartModeManual" name="classStartNotifyMode" value="manual">
+                  <div class="notify-mode-label">
+                    <strong>Tiempo manual</strong>
+                    <span class="muted">Elige cuántos minutos antes avisarte</span>
+                  </div>
+                </label>
+                <div class="notify-sub-field" id="classStartManualField">
+                  <input id="classStartMinutesVisible" type="number" min="1" max="120" step="1" style="width:72px">
+                  <span class="muted">minutos antes de clase</span>
+                </div>
+                <label class="notify-mode-row" for="classStartModeCommute">
+                  <input type="radio" id="classStartModeCommute" name="classStartNotifyMode" value="commute">
+                  <div class="notify-mode-label">
+                    <strong>Según mi traslado</strong>
+                    <span class="muted">La app calcula cuándo salir según tu distancia a la escuela</span>
+                  </div>
+                </label>
+                <div class="notify-sub-field" id="classStartCommuteField" hidden>
+                  <input id="classStartCommuteBuffer" type="number" min="0" max="30" step="1" style="width:72px">
+                  <span class="muted">min de margen extra</span>
+                  <p class="commute-notify-status muted" id="commuteNotifyStatus"></p>
+                </div>
+              </div>
+            </div>
             <label class="field-label" style="margin-top:8px">
               Máx. grabaciones por clase
               <input id="maxRecordingsPerClass" type="number" min="1" max="200" step="1" style="width:80px;margin-top:4px">
@@ -551,7 +597,8 @@
         <section class="task-planning">
           <label class="field task-class-field">
             Clase
-            <select id="taskClass"></select>
+            <button class="field-select-trigger" type="button" id="taskClassTrigger" aria-haspopup="dialog">Sin clase</button>
+            <select id="taskClass" hidden></select>
           </label>
           <label class="field">
             Fecha de entrega
@@ -606,7 +653,8 @@
         </label>
         <label class="field">
           Clase
-          <select id="examClass"></select>
+          <button class="field-select-trigger" type="button" id="examClassTrigger" aria-haspopup="dialog">Sin clase</button>
+          <select id="examClass" hidden></select>
         </label>
         <div class="field-row">
           <label class="field">
@@ -778,6 +826,25 @@
         </button>
       </div>
     </dialog>
+    <dialog class="dialog confirm-dialog" id="confirmDialog">
+      <p class="confirm-title" id="confirmTitle"></p>
+      <p class="confirm-message muted" id="confirmMessage"></p>
+      <div class="confirm-actions">
+        <button class="text-button" type="button" id="confirmCancelButton">Cancelar</button>
+        <button class="primary-button" type="button" id="confirmOkButton">Aceptar</button>
+      </div>
+    </dialog>
+
+    <dialog class="dialog picker-dialog" id="classPickerDialog">
+      <div class="dialog-heading">
+        <h2>Elegir clase</h2>
+        <button class="icon-button small" type="button" data-close-dialog="classPickerDialog" aria-label="Cerrar">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="picker-list" id="classPickerList"></div>
+    </dialog>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>
 </html>

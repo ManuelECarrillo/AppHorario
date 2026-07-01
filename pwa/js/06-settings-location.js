@@ -86,10 +86,17 @@ function bindSettings() {
   settings.backgroundColor.value = state.settings.backgroundColor;
   settings.taskPromptMinutes.value = state.settings.taskPromptMinutes;
   settings.classStartMinutes.value = state.settings.classStartMinutes;
+
+  bindSegmentedControl("themeModeControl", "themeMode");
+  bindSegmentedControl("timeFormatControl", "timeFormat");
+  renderThemePresets();
+  bindThemePresets();
+
   settings.notificationSound.value = getNotificationSoundKey();
   settings.taskNotificationSound.value = getTaskNotificationSoundKey();
   settings.taskPromptEnabled.checked = state.settings.taskPromptEnabled;
   settings.classStartEnabled.checked = state.settings.classStartEnabled;
+  if (settings.classStartCommuteBuffer) settings.classStartCommuteBuffer.value = state.settings.classStartCommuteBuffer ?? 5;
   if (settings.maxRecordingsPerClass) settings.maxRecordingsPerClass.value = state.settings.maxRecordingsPerClass || 20;
   settings.commuteCarEnabled.checked = Boolean(state.settings.commuteCarEnabled);
   settings.commuteWalkEnabled.checked = Boolean(state.settings.commuteWalkEnabled);
@@ -106,6 +113,7 @@ function bindSettings() {
       tick();
       if (key === "timeFormat") render();
       if (key.startsWith("commute")) updateCommuteSummary(true);
+      if (key === "classStartCommuteBuffer") updateCommuteNotifyStatus();
       rescheduleNativeNotificationsSoon();
     });
 
@@ -118,6 +126,89 @@ function bindSettings() {
       tick();
       if (key === "timeFormat") render();
       if (key.startsWith("commute")) updateCommuteSummary(true);
+      if (key === "classStartCommuteBuffer") updateCommuteNotifyStatus();
+      rescheduleNativeNotificationsSoon();
+    });
+  });
+
+  bindClassStartTimingOptions();
+}
+
+function bindSegmentedControl(containerId, selectId) {
+  const container = document.getElementById(containerId);
+  const select = document.getElementById(selectId);
+  if (!container || !select) return;
+
+  function update(value) {
+    container.querySelectorAll(".seg-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.segValue === value);
+    });
+  }
+
+  update(select.value);
+
+  container.addEventListener("click", (e) => {
+    const btn = e.target.closest(".seg-btn");
+    if (!btn) return;
+    const value = btn.dataset.segValue;
+    update(value);
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+function bindClassStartTimingOptions() {
+  const enabledToggle = document.getElementById("classStartEnabled");
+  const optionsPanel = document.getElementById("classStartOptions");
+  const manualField = document.getElementById("classStartManualField");
+  const commuteField = document.getElementById("classStartCommuteField");
+  const manualInput = document.getElementById("classStartMinutesVisible");
+
+  function syncMode(mode) {
+    const isCommute = mode === "commute";
+    if (manualField) manualField.hidden = isCommute;
+    if (commuteField) commuteField.hidden = !isCommute;
+    if (!isCommute && manualInput) manualInput.value = state.settings.classStartMinutes || 5;
+    if (isCommute) updateCommuteNotifyStatus();
+  }
+
+  function applyToggle() {
+    if (optionsPanel) optionsPanel.hidden = !enabledToggle?.checked;
+  }
+
+  // Set initial radio state
+  const currentMode = state.settings.classStartNotifyMode || "manual";
+  const radioEl = document.querySelector(`[name="classStartNotifyMode"][value="${currentMode}"]`);
+  if (radioEl) radioEl.checked = true;
+  if (manualInput) manualInput.value = state.settings.classStartMinutes || 5;
+  applyToggle();
+  syncMode(currentMode);
+
+  // Toggle visibility of the sub-panel
+  if (enabledToggle) {
+    enabledToggle.addEventListener("change", () => {
+      applyToggle();
+    });
+  }
+
+  // Sync manual minutes input → hidden input (used by auto-binding loop)
+  if (manualInput) {
+    manualInput.addEventListener("input", () => {
+      const hidden = document.getElementById("classStartMinutes");
+      if (hidden) hidden.value = manualInput.value;
+      state.settings.classStartMinutes = Number(manualInput.value) || 5;
+      saveState();
+      rescheduleNativeNotificationsSoon();
+    });
+  }
+
+  // Radio buttons
+  document.querySelectorAll('[name="classStartNotifyMode"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      state.settings.classStartNotifyMode = radio.value;
+      saveState();
+      syncMode(radio.value);
       rescheduleNativeNotificationsSoon();
     });
   });

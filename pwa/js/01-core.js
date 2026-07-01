@@ -157,12 +157,15 @@ const defaultState = {
     commuteBusEnabled: false,
     taskPromptEnabled: true,
     classStartEnabled: true,
+    classStartNotifyMode: "manual",
+    classStartCommuteBuffer: 5,
     maxRecordingsPerClass: 20
   },
   classes: [],
   tasks: [],
   exams: [],
-  notified: {}
+  notified: {},
+  commuteMinutesCache: {}
 };
 
 let state = loadState();
@@ -284,6 +287,7 @@ const elements = {
     commuteBusEnabled: $("#commuteBusEnabled"),
     taskPromptEnabled: $("#taskPromptEnabled"),
     classStartEnabled: $("#classStartEnabled"),
+    classStartCommuteBuffer: $("#classStartCommuteBuffer"),
     maxRecordingsPerClass: $("#maxRecordingsPerClass")
   }
 };
@@ -319,6 +323,7 @@ function init() {
   safeRun(bindTaskFilters);
   safeRun(bindDialogs);
   safeRun(bindForms);
+  safeRun(bindClassPicker);
   safeRun(bindSettings);
   safeRun(bindSoundPickers);
   safeRun(bindCommuteSettings);

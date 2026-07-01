@@ -2,15 +2,44 @@ function bindNotifications() {
   updateNotificationButton();
   rescheduleNativeNotificationsSoon();
   elements.notifyButton.addEventListener("click", async () => {
-    const granted = await requestNotificationPermission();
-    if (!granted) {
-      alert("No se activaron las notificaciones. Revisa el permiso de la app en ajustes del teléfono.");
-    } else if (!await ensureExactNotificationPermission({ prompt: true })) {
+    const permission = await getNotificationPermission();
+    const isActive = permission === "granted" && !state.settings.notificationsPaused;
+
+    if (isActive) {
+      const confirmed = await showConfirmDialog(
+        "Desactivar notificaciones",
+        "Puedes volver a activarlas tocando este mismo botón."
+      );
+      if (confirmed) {
+        state.settings.notificationsPaused = true;
+        saveState();
+        const localNotifications = getLocalNotificationsPlugin();
+        if (localNotifications) await cancelPendingNativeNotifications(localNotifications);
+        state.nativeNotificationIds = [];
+        saveState();
+        showToast("Notificaciones desactivadas.");
+      }
+      updateNotificationButton();
+      return;
+    }
+
+    state.settings.notificationsPaused = false;
+    saveState();
+
+    if (permission === "granted") {
       await rescheduleNativeNotifications();
-      alert("Falta activar Alarmas y recordatorios exactos en Android. Sin eso, el teléfono puede atrasar los avisos varios minutos.");
+      showToast("Notificaciones reactivadas.");
     } else {
-      await rescheduleNativeNotifications();
-      alert("Notificaciones activadas. Te avisaré de clases, tareas y estudio aunque cierres la app.");
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        await showConfirmDialog("Sin permiso", "No se activaron las notificaciones. Revisa el permiso en ajustes del teléfono.", { alertOnly: true });
+      } else if (!await ensureExactNotificationPermission({ prompt: true })) {
+        await rescheduleNativeNotifications();
+        showToast("Notificaciones activas. Para avisos exactos activa Alarmas en Ajustes de Android.");
+      } else {
+        await rescheduleNativeNotifications();
+        showToast("Notificaciones activadas.");
+      }
     }
     updateNotificationButton();
   });
@@ -80,10 +109,11 @@ async function registerServiceWorker() {
 
 async function updateNotificationButton() {
   const permission = await getNotificationPermission();
-  const label = permission === "granted" ? "Notificaciones activas" : "Activar notificaciones";
+  const active = permission === "granted" && !state.settings.notificationsPaused;
+  const label = active ? "Desactivar notificaciones" : "Activar notificaciones";
   elements.notifyButton.setAttribute("aria-label", label);
   elements.notifyButton.setAttribute("title", label);
-  elements.notifyButton.classList.toggle("enabled", permission === "granted");
+  elements.notifyButton.classList.toggle("enabled", active);
 }
 
 async function getNotificationPermission() {
@@ -228,6 +258,11 @@ async function rescheduleNativeNotifications() {
   const permission = await getNotificationPermission();
   if (permission !== "granted") return;
 
+  if (state.settings.notificationsPaused) {
+    await cancelPendingNativeNotifications(localNotifications);
+    return;
+  }
+
   await ensureExactNotificationPermission();
   // Pre-create all sound channels so they're ready when needed
   for (const key of Object.keys(NOTIFICATION_SOUNDS)) {
@@ -246,8 +281,9 @@ async function rescheduleNativeNotifications() {
   }
 
   const notifications = buildNativeNotificationSchedule(new Date());
-  if (notifications.length) {
-    await localNotifications.schedule({ notifications }).catch(() => undefined);
+  const BATCH = 100;
+  for (let i = 0; i < notifications.length; i += BATCH) {
+    await localNotifications.schedule({ notifications: notifications.slice(i, i + BATCH) }).catch(() => undefined);
   }
 
   state.nativeNotificationIds = notifications.map((notification) => notification.id);
@@ -274,7 +310,7 @@ function buildNativeNotificationSchedule(now) {
   const scheduled = [];
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const horizonDays = 30;
-  const limit = 60;
+  const limit = 300;
   const RECURRING_CAP = 4;
   const recurringTaskCount = {};
 
@@ -298,12 +334,30 @@ function buildNativeNotificationSchedule(now) {
       }
 
       if (state.settings.classStartEnabled) {
-        const minutes = Number(state.settings.classStartMinutes || 5);
+        let minutes;
+        let body;
+        if (state.settings.classStartNotifyMode === "commute") {
+          const cache = state.commuteMinutesCache || {};
+          const modes = getEnabledCommuteModes();
+          const times = modes.map((m) => cache[m.key]).filter(Boolean);
+          if (times.length) {
+            const travel = Math.min(...times);
+            const buffer = Number(state.settings.classStartCommuteBuffer ?? 5);
+            minutes = travel + buffer;
+            body = `${getClassDisplayName(item)} — ¡Sal ya! ~${travel} min de traslado`;
+          } else {
+            minutes = Number(state.settings.classStartMinutes || 5);
+            body = `${getClassDisplayName(item)} inicia en ${minutes} min.`;
+          }
+        } else {
+          minutes = Number(state.settings.classStartMinutes || 5);
+          body = `${getClassDisplayName(item)} inicia en ${minutes} min.`;
+        }
         const at = addMinutes(classStart, -minutes);
         scheduled.push({
           key: `${dateValue}:class-start:${item.id}`,
           title: "Clase por iniciar",
-          body: `${getClassDisplayName(item)} inicia en ${minutes} min.`,
+          body,
           at,
           extra: { classId: item.id }
         });
@@ -327,6 +381,35 @@ function buildNativeNotificationSchedule(now) {
       });
     });
   }
+
+  // Pre-schedule hourly reminders for the last 24 h before each Moodle task's due date.
+  // All alarms are set in advance so the app does NOT need to be open on that day.
+  state.tasks
+    .filter((task) => task.source === MOODLE_TASK_SOURCE && !isTaskComplete(task, toDateInput(now)))
+    .forEach((task) => {
+      const dueAt = dateTimeFromParts(task.date, task.dueTime || task.time || "23:59");
+      if (dueAt <= now) return;
+
+      const windowStart = new Date(dueAt.getTime() - 24 * 60 * 60 * 1000);
+      const scheduleFrom = new Date(Math.max(windowStart.getTime(), now.getTime()));
+      const nextHour = new Date(scheduleFrom);
+      nextHour.setMinutes(0, 0, 0);
+      nextHour.setHours(nextHour.getHours() + 1);
+
+      for (let t = new Date(nextHour); t < dueAt; t = new Date(t.getTime() + 60 * 60 * 1000)) {
+        const hour = t.getHours();
+        if (hour < 8 || hour >= 23) continue;
+        const hoursLeft = Math.max(1, Math.round((dueAt - t) / (60 * 60 * 1000)));
+        scheduled.push({
+          key: `moodle-urgent:${task.id}:${toDateInput(t)}:${hour}`,
+          title: `Tarea Moodle — ${hoursLeft}h restante${hoursLeft !== 1 ? "s" : ""}`,
+          body: task.title,
+          at: new Date(t),
+          extra: { taskId: task.id },
+          soundKey: getTaskNotificationSoundKey()
+        });
+      }
+    });
 
   return scheduled
     .filter((item) => item.at > now)
