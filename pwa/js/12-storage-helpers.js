@@ -215,7 +215,7 @@ function getDaysUntil(dateValue) {
 function formatDaysLeft(daysLeft) {
   if (daysLeft < 0) return `Hace ${Math.abs(daysLeft)} d`;
   if (daysLeft === 0) return "Hoy";
-  if (daysLeft === 1) return "Manana";
+  if (daysLeft === 1) return "Mañana";
   return `Faltan ${daysLeft} d`;
 }
 
