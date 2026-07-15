@@ -163,7 +163,8 @@ async function playAudio(recordingId) {
 }
 
 async function deleteAudio(recordingId) {
-  if (!confirm("¿Eliminar este audio?")) return;
+  const confirmed = await showConfirmDialog("Eliminar audio", "Esta acción no se puede deshacer.");
+  if (!confirmed) return;
 
   const player = document.querySelector(`[data-audio-player="${recordingId}"]`);
   if (player && player.src) URL.revokeObjectURL(player.src);
@@ -421,7 +422,8 @@ async function downloadPhoto(photoId) {
 }
 
 async function deletePhoto(photoId) {
-  if (!confirm("Eliminar esta foto del pizarron?")) return;
+  const confirmed = await showConfirmDialog("Eliminar foto", "La foto del pizarrón se borrará de este dispositivo.");
+  if (!confirmed) return;
 
   await deletePhotoBlob(photoId).catch(() => undefined);
   state.classes = state.classes.map((classItem) => ({

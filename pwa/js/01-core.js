@@ -408,6 +408,9 @@ function normalizeState(nextState) {
     ...nextState,
     classes: nextState.classes.map((item, index) => ({
       ...item,
+      days: Array.isArray(item.days) ? item.days : [],
+      start: item.start || "07:00",
+      end: item.end || "08:00",
       color: item.color || ["#216869", "#c7503d", "#c7972b", "#3563a9"][index % 4],
       room: item.room || "",
       teacher: item.teacher || "",

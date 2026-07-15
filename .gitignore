@@ -31,3 +31,7 @@ Thumbs.db
 qa_*.png
 graphify-out/
 CLAUDE*tokens*.md
+
+# Release signing (NUNCA subir a git)
+android/keystore/
+android/keystore.properties

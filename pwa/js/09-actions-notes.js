@@ -304,7 +304,8 @@ function saveTask(event) {
     done: existing && existing.done ? existing.done : false,
     completedDates: existing && existing.completedDates ? existing.completedDates : [],
     source: existing && existing.source ? existing.source : "",
-    externalId: existing && existing.externalId ? existing.externalId : ""
+    externalId: existing && existing.externalId ? existing.externalId : "",
+    examId: existing && existing.examId ? existing.examId : undefined
   };
 
   const isNew = !state.tasks.find((item) => item.id === id);
@@ -743,8 +744,9 @@ function saveEditedNote(noteId) {
   renderNotesHistory(item);
 }
 
-function deleteNote(noteId) {
-  if (!confirm("¿Eliminar esta nota?")) return;
+async function deleteNote(noteId) {
+  const confirmed = await showConfirmDialog("Eliminar nota", "Esta acción no se puede deshacer.");
+  if (!confirmed) return;
 
   const classId = $("#noteClassId").value;
   state.classes = state.classes.map((classItem) => classItem.id === classId

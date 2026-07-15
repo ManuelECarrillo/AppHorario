@@ -104,6 +104,7 @@ function bindSettings() {
   settings.commuteBusEnabled.checked = Boolean(state.settings.commuteBusEnabled);
 
   Object.entries(settings).forEach(([key, input]) => {
+    if (!input) return;
     input.addEventListener("input", () => {
       state.settings[key] = getSettingInputValue(input);
       syncAccentWithPrimary(key);

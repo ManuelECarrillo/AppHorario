@@ -185,19 +185,11 @@ async function fetchMoodleToken(username, password) {
     throw Object.assign(new Error("Cliente HTTP nativo no disponible."), { code: "missing_http_client" });
   }
 
-  console.log("[Moodle] postForm → token.php username=" + username.slice(0, 5) + "...");
-  let resp;
-  try {
-    resp = await window.AppHorarioHttp.postForm(
-      "https://plataforma.itdurango.edu.mx/login/token.php",
-      { username, password, service: "moodle_mobile_app" },
-      { readTimeout: 20000 }
-    );
-  } catch (netErr) {
-    console.log("[Moodle] token.php network error: " + (netErr && (netErr.message || netErr)));
-    throw netErr;
-  }
-  console.log("[Moodle] token.php status=" + resp.status + " data(150)=" + String(resp.data || "").slice(0, 150));
+  const resp = await window.AppHorarioHttp.postForm(
+    "https://plataforma.itdurango.edu.mx/login/token.php",
+    { username, password, service: "moodle_mobile_app" },
+    { readTimeout: 20000 }
+  );
 
   let data;
   try { data = JSON.parse(resp.data); }
@@ -251,7 +243,7 @@ async function fetchMoodleUpcoming(token) {
     );
   }
 
-  logSiiEvent("moodle:assignmentsOk", { url: MOODLE_UPCOMING_URL, data: resp });
+  logSiiEvent("moodle:assignmentsOk", { url: MOODLE_UPCOMING_URL });
   return parseMoodleAssignments(data);
 }
 

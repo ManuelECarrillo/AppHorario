@@ -1,4 +1,4 @@
-const CACHE_NAME = "apphorario-v26";
+const CACHE_NAME = "apphorario-v27";
 const ASSETS = [
   "./",
   "index.html",
@@ -16,6 +16,11 @@ const ASSETS = [
   "js/10-media.js",
   "js/11-notification-runtime.js",
   "js/12-storage-helpers.js",
+  "js/13-security.js",
+  "js/14-moodle.js",
+  "sounds/apphorario_chime.wav",
+  "sounds/apphorario_focus.wav",
+  "sounds/apphorario_digital.wav",
   "env.js",
   "manifest.webmanifest",
   "assets/icon-192.png",
